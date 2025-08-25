@@ -370,6 +370,11 @@ function library:register_dependency(element)
 		library.elements = {}
 	end
 	
+	-- Сразу скрываем элемент по умолчанию
+	if element.object then
+		element.object.Visible = false
+	end
+	
 	-- Ждем пока родительский элемент будет создан
 	task.spawn(function()
 		local attempts = 0
@@ -385,7 +390,7 @@ function library:register_dependency(element)
 			end
 			table.insert(parent.dependent_elements, element)
 			
-			-- Устанавливаем начальную видимость
+			-- Устанавливаем правильную видимость на основе текущего значения
 			local should_show = false
 			local current_value = flags[parent_flag]
 			
