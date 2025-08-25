@@ -56,6 +56,7 @@ getgenv().library = {
 	keybind_path,
 	panel_open = false,
 	elements = {}, -- Хранилище всех UI элементов
+	dependency_boxes = {}, -- Контейнеры зависимостей (DependencyBox)
 
 	directory = "inactivity",
 	folders = {
@@ -363,64 +364,89 @@ function library:convert_enum(enum)
 end
 
 function library:register_dependency(element)
-	if not element.dependency then return end
-	
-	local parent_flag = element.dependency.flag
-	if not library.elements then
-		library.elements = {}
-	end
-	
-	-- Сразу скрываем элемент по умолчанию
-	if element.object then
-		element.object.Visible = false
-	end
-	
-	-- Ждем пока родительский элемент будет создан
-	task.spawn(function()
-		local attempts = 0
-		while not library.elements[parent_flag] and attempts < 50 do
-			task.wait(0.1)
-			attempts = attempts + 1
-		end
-		
-		if library.elements[parent_flag] then
-			local parent = library.elements[parent_flag]
-			if not parent.dependent_elements then
-				parent.dependent_elements = {}
-			end
-			table.insert(parent.dependent_elements, element)
-			
-			-- Устанавливаем правильную видимость на основе текущего значения
-			local should_show = false
-			local current_value = flags[parent_flag]
-			
-			if type(element.dependency.value) == "boolean" then
-				should_show = (current_value == element.dependency.value)
-			elseif type(element.dependency.value) == "string" then
-				should_show = (current_value == element.dependency.value)
-			elseif type(element.dependency.value) == "table" then
-				if type(current_value) == "table" then
-					for _, dep_val in pairs(element.dependency.value) do
-						if table.find(current_value, dep_val) then
-							should_show = true
-							break
-						end
-					end
-				else
-					for _, val in pairs(element.dependency.value) do
-						if current_value == val then
-							should_show = true
-							break
-						end
-					end
-				end
-			end
-			
-			if element.object then
-				element.object.Visible = should_show
-			end
-		end
-	end)
+    if not element.dependency then return end
+    
+    -- Новая логика: поддержка DependencyBox контейнера
+    local dep = element.dependency
+    local box = dep.box or dep.container
+
+    if box and typeof(box) == "table" and box.Frame ~= nil then
+        -- Перемещаем элемент внутрь контейнера и не управляем его Visible точечно.
+        if element.object then
+            element.object.Parent = box.Frame
+            element.object.Visible = true
+        end
+
+        -- Настройка зависимостей контейнера: либо список deps, либо одиночный flag/value
+        local deps = dep.deps or dep.dependencies
+        if deps and type(deps) == "table" then
+            box:SetupDependencies(deps)
+        elseif dep.flag and dep.value ~= nil then
+            box:SetupDependencies({ { dep.flag, dep.value } })
+        end
+
+        -- Обновляем контейнеры и выходим, не регистрируя плоскую зависимость
+        library:update_dependency_boxes()
+        return
+    end
+
+    -- Бэкап: существующая плоская система зависимостей
+    local parent_flag = element.dependency.flag
+    if not library.elements then
+        library.elements = {}
+    end
+    
+    -- Сразу скрываем элемент по умолчанию (для плоской системы)
+    if element.object then
+        element.object.Visible = false
+    end
+    
+    -- Ждем пока родительский элемент будет создан
+    task.spawn(function()
+        local attempts = 0
+        while not library.elements[parent_flag] and attempts < 50 do
+            task.wait(0.1)
+            attempts = attempts + 1
+        end
+        
+        if library.elements[parent_flag] then
+            local parent = library.elements[parent_flag]
+            if not parent.dependent_elements then
+                parent.dependent_elements = {}
+            end
+            table.insert(parent.dependent_elements, element)
+            
+            -- Устанавливаем правильную видимость на основе текущего значения
+            local should_show = false
+            local current_value = flags[parent_flag]
+            
+            if type(element.dependency.value) == "boolean" then
+                should_show = (current_value == element.dependency.value)
+            elseif type(element.dependency.value) == "string" then
+                should_show = (current_value == element.dependency.value)
+            elseif type(element.dependency.value) == "table" then
+                if type(current_value) == "table" then
+                    for _, dep_val in pairs(element.dependency.value) do
+                        if table.find(current_value, dep_val) then
+                            should_show = true
+                            break
+                        end
+                    end
+                else
+                    for _, val in pairs(element.dependency.value) do
+                        if current_value == val then
+                            should_show = true
+                            break
+                        end
+                    end
+                end
+            end
+            
+            if element.object then
+                element.object.Visible = should_show
+            end
+        end
+    end)
 end
 
 function library:config_list_update()
@@ -2930,6 +2956,124 @@ function library:section(properties)
 	return setmetatable(cfg, library)
 end
 
+-- DependencyBox контейнеры (группировка зависимых элементов)
+function library:add_dependency_box(properties)
+	local depbox = {
+		Dependencies = {},
+	}
+
+	local Group = self
+	local Container = Group.holder
+
+	local Holder = library:create("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 0),
+		Visible = false,
+		Parent = Container,
+	})
+
+	local Frame = library:create("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 1, 0),
+		Visible = true,
+		Parent = Holder,
+	})
+
+	local Layout = library:create("UIListLayout", {
+		FillDirection = Enum.FillDirection.Vertical,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 3),
+		Parent = Frame,
+	})
+
+	function depbox:Resize()
+		Holder.Size = UDim2.new(1, 0, 0, Layout.AbsoluteContentSize.Y)
+	end
+
+	Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		depbox:Resize()
+	end)
+
+	Holder:GetPropertyChangedSignal("Visible"):Connect(function()
+		depbox:Resize()
+	end)
+
+	local function dependency_matches(current_value, expected_value)
+		if type(expected_value) == "table" then
+			if type(current_value) == "table" then
+				for _, v in pairs(expected_value) do
+					if table.find(current_value, v) then
+						return true
+					end
+				end
+				return false
+			else
+				for _, v in pairs(expected_value) do
+					if current_value == v then
+						return true
+					end
+				end
+				return false
+			end
+		else
+			return current_value == expected_value
+		end
+	end
+
+	function depbox:Update()
+		for _, Dependency in next, self.Dependencies do
+			local flag_name = Dependency[1]
+			local expected = Dependency[2]
+			local current = flags[flag_name]
+
+			if not dependency_matches(current, expected) then
+				Holder.Visible = false
+				self:Resize()
+				return
+			end
+		end
+
+		Holder.Visible = true
+		self:Resize()
+	end
+
+	function depbox:SetupDependencies(deps)
+		for _, d in next, deps do
+			assert(type(d) == "table", "SetupDependencies: Dependency is not of type `table`.")
+			assert(d[1], "SetupDependencies: Dependency is missing flag.")
+			assert(d[2] ~= nil, "SetupDependencies: Dependency is missing value.")
+		end
+
+		self.Dependencies = deps
+		self:Update()
+	end
+
+	function depbox:Begin()
+		self._prev_holder = Group.holder
+		Group.holder = Frame
+	end
+
+	function depbox:End()
+		Group.holder = self._prev_holder
+		self:Resize()
+	end
+
+	depbox.Holder = Holder
+	depbox.Frame = Frame
+	depbox.Layout = Layout
+
+	library.dependency_boxes = library.dependency_boxes or {}
+	table.insert(library.dependency_boxes, depbox)
+
+	return depbox
+end
+
+function library:update_dependency_boxes()
+	for _, box in next, (library.dependency_boxes or {}) do
+		box:Update()
+	end
+end
+
 function library:hitpart_picker(properties)
 	local cfg = {
 		name = properties.name or properties.Name or "Hitpart",
@@ -3295,6 +3439,8 @@ function library:hitpart_picker(properties)
 		end
 
 		cfg.callback(flags[cfg.flag])
+		-- Обновляем DependencyBox контейнеры
+		library:update_dependency_boxes()
 	end
 
 	for name, button in next, bodyparts do
@@ -3499,6 +3645,9 @@ function library:toggle(properties)
 				end
 			end
 		end
+
+		-- Обновляем все DependencyBox контейнеры
+		library:update_dependency_boxes()
 	end
 
 	library:connection(object.MouseButton1Click, function()
@@ -3733,6 +3882,8 @@ function library:slider(properties)
 		flags[cfg.flag] = cfg.value
 
 		cfg.callback(flags[cfg.flag])
+		-- Обновляем DependencyBox контейнеры
+		library:update_dependency_boxes()
 	end
 
 	library:connection(uis.InputChanged, function(input)
@@ -4053,6 +4204,8 @@ function library:dropdown(properties)
 				end
 			end
 		end
+		-- Обновляем DependencyBox контейнеры
+		library:update_dependency_boxes()
 	end
 
 	function cfg:refresh_options(refreshed_list)
@@ -4741,6 +4894,8 @@ function library:colorpicker(properties)
 		cfg.saved_color = hsv(s, s, v)
 
 		cfg.callback(Color, a)
+		-- Обновляем DependencyBox контейнеры
+		library:update_dependency_boxes()
 	end
 
 	__input.FocusLost:Connect(function()
@@ -5196,6 +5351,8 @@ function library:keybind(properties)
 			key.change_text(keybind.Text .. " " .. cfg.keybind_name .. " (" .. flags[cfg.flag].mode .. ")")
 			key.set_visible(cfg.active)
 		end
+		-- Обновляем DependencyBox контейнеры
+		library:update_dependency_boxes()
 	end
 
 	local selected
@@ -5430,12 +5587,16 @@ function library:textbox(properties)
 	textbox:GetPropertyChangedSignal("Text"):Connect(function()
 		flags[cfg.flag] = textbox.text
 		cfg.callback(textbox.text)
+		-- Обновляем DependencyBox контейнеры
+		library:update_dependency_boxes()
 	end)
 
 	function cfg.set(text)
 		flags[cfg.flag] = text
 		textbox.Text = text
 		cfg.callback(text)
+		-- Обновляем DependencyBox контейнеры
+		library:update_dependency_boxes()
 	end
 
 	if cfg.default then
