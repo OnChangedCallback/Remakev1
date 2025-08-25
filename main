@@ -1,0 +1,264 @@
+local library =
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/OnChangedCallback/Remakev1/refs/heads/main/lib"))()
+local flags = library.flags -- access flags from here.
+
+-- Переменные
+vars = {
+	lp = game.Players.LocalPlayer,
+	HttpService = game:GetService("HttpService"),
+	dir = (library and (library.directory .. "/configs/")) or "configs/"
+}
+
+-- Добавляем table.find если его нет
+if not table.find then
+	table.find = function(tbl, value)
+		for i, v in pairs(tbl) do
+			if v == value then
+				return i
+			end
+		end
+		return nil
+	end
+end
+
+-- Утилити библиотека (глобальная)
+do -- Utilities
+    utility = utility or {}
+
+    function utility.ensure_config_directory()
+        if not isfolder(library.directory) then
+            makefolder(library.directory)
+        end
+        if not isfolder(vars.dir) then
+            makefolder(vars.dir)
+        end
+    end
+
+    function utility.get_config_list()
+        utility.ensure_config_directory()
+        local configs = {}
+        for _, file in pairs(listfiles(vars.dir)) do
+            if file:sub(-4) == ".cfg" then
+                local name = file:match("([^/\\]+)%.cfg$")
+                if name then
+                    table.insert(configs, name)
+                end
+            end
+        end
+        return configs
+    end
+end
+
+local window = library:window({
+	name = "rat.lua",
+	size = UDim2.fromOffset(700, 650),
+})
+local rage = window:tab({ name = "rage" })
+local esp = window:tab({ name = "esp" })
+local visuals = window:tab({ name = "visuals" })
+local misc = window:tab({ name = "misc" })
+
+do -- Configs
+	local configs = window:tab({ name = "configs" })
+	local config = configs:section({ name = "Theming System", side = "right" })
+	config:toggle({
+		name = "KeybindList",
+		flag = "keybind_list",
+		default = false,
+		callback = function(bool)
+			window.toggle_list(bool)
+		end,
+	})
+	config:toggle({
+		name = "PlayerList",
+		flag = "player_list",
+		default = false,
+		callback = function(bool)
+			window.toggle_playerlist(bool)
+		end,
+	})
+	config:toggle({
+		name = "Watermark",
+		flag = "watermark",
+		default = false,
+		callback = function(bool)
+			window.toggle_watermark(bool)
+		end,
+	})
+	config:keybind({
+		name = "UI Bind",
+		default = Enum.KeyCode.End,
+		display = "menu",
+		callback = window.set_menu_visibility,
+	})
+	config:slider({
+		name = "Colorpicker Animation Speed",
+		flag = "color_picker_anim_speed",
+		min = 0,
+		max = 5,
+		default = 2,
+		interval = 0.01,
+		suffix = "",
+	})
+	config:colorpicker({
+		color = Color3.fromHex("#000000"),
+		flag = "accent",
+		callback = function(color)
+			library:update_theme("accent", color)
+		end,
+	})
+	config:button({
+		name = "Copy JobId",
+		callback = function()
+			setclipboard(game.JobId)
+		end,
+	})
+	config:button({
+		name = "Copy GameID",
+		callback = function()
+			setclipboard(game.GameId)
+		end,
+	})
+	config:button({
+		name = "Copy Join Script",
+		callback = function()
+			setclipboard(
+				'game:GetService("TeleportService"):TeleportToPlaceInstance('
+					.. game.PlaceId
+					.. ', "'
+					.. game.JobId
+					.. '", game.Players.LocalPlayer)'
+			)
+		end,
+	})
+	config:button({
+		name = "Rejoin",
+		callback = function()
+			game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, vars.lp)
+		end,
+	})
+
+	local configs_section = configs:section({ name = "Configuration System", side = "left" })
+
+	-- Локальная утилита пересоздания dropdown (без refresh метода)
+    local function create_config_dropdown(selected)
+        if library.config_holder and type(library.config_holder.remove) == "function" then
+            library.config_holder:remove()
+        end
+        local items = utility.get_config_list()
+        library.config_holder = configs_section:dropdown({
+            name = "Configs",
+            items = items,
+            flag = "config_name_list",
+            multi = false
+        })
+        if selected and table.find(items, selected) then
+            library.config_holder:set(selected)
+        elseif #items > 0 then
+            library.config_holder:set(items[1])
+        end
+    end
+
+	-- Функция обновления списка конфигов через пересоздание dropdown
+    function library:config_list_update()
+        local current_value = flags["config_name_list"]
+        create_config_dropdown(current_value)
+    end
+
+	-- Создаем dropdown первый раз
+    create_config_dropdown(flags["config_name_list"]) 
+	configs_section:textbox({ flag = "config_name_text_box" })
+	configs_section:button({
+		name = "Create",
+		callback = function()
+			local config_name = flags["config_name_text_box"]
+			if config_name and config_name ~= "" then
+				utility.ensure_config_directory()
+				local config_data = library:get_config()
+				writefile(vars.dir .. config_name .. ".cfg", config_data)
+				library:config_list_update()
+				library:notification({ text = "Config '" .. config_name .. "' created!" })
+			else
+				library:notification({ text = "Please enter a config name!" })
+			end
+		end,
+	})
+	configs_section:button({
+		name = "Delete",
+		callback = function()
+			if flags["config_name_list"] and flags["config_name_list"] ~= "" then
+				library:panel({
+					name = "Are you sure you want to delete " .. flags["config_name_list"] .. " ?",
+					options = { "Yes", "No" },
+					callback = function(option)
+						if option == "Yes" then
+							local config_name = flags["config_name_list"]
+							local file_path = vars.dir .. config_name .. ".cfg"
+							if isfile(file_path) then
+								delfile(file_path)
+								library:config_list_update()
+								library:notification({
+									text = "Config '" .. config_name .. "' deleted!",
+								})
+							else
+								library:notification({ text = "Config file not found!" })
+							end
+						end
+					end,
+				})
+			end
+		end,
+	})
+	configs_section:button({
+		name = "Load",
+		callback = function()
+			local config_name = flags["config_name_list"]
+			if config_name and config_name ~= "" then
+				local file_path = vars.dir .. config_name .. ".cfg"
+				if isfile(file_path) then
+					local config_data = readfile(file_path)
+					library:load_config(config_data)
+					library:notification({ text = "Config '" .. config_name .. "' loaded!" })
+				else
+					library:notification({ text = "Config file not found!" })
+				end
+			else
+				library:notification({ text = "Please select a config!" })
+			end
+		end,
+	})
+	configs_section:button({
+		name = "Save",
+		callback = function()
+			local config_name = flags["config_name_list"]
+			if config_name and config_name ~= "" then
+				utility.ensure_config_directory()
+				local config_data = library:get_config()
+				writefile(vars.dir .. config_name .. ".cfg", config_data)
+				library:notification({ text = "Config '" .. config_name .. "' saved!" })
+			else
+				library:notification({ text = "Please select a config!" })
+			end
+		end,
+	})
+	configs_section:button({
+		name = "Refresh List",
+		callback = function()
+			library:config_list_update()
+			library:notification({ text = "Config list refreshed!" })
+		end,
+	})
+	configs_section:button({
+		name = "Unload Menu",
+		callback = function()
+			library:unload()
+		end,
+	})
+end
+
+
+
+for i = 1, 15 do
+	library:notification({ text = "when randomly onyx hub😁" })
+end
+
