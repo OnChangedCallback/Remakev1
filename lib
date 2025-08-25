@@ -369,16 +369,20 @@ function library:convert_enum(enum)
 end
 
 function library:config_list_update()
-	if not library.config_holder then
-		return
+	if not isfolder(library.directory .. "/configs") then
+		makefolder(library.directory .. "/configs")
 	end
 
 	local list = {}
 
 	for idx, file in next, listfiles(library.directory .. "/configs") do
-		local name = file.split(file, "/configs/")[2]
-		name = name.split(name, ".cfg")[1]
-		list[#list + 1] = name
+		if file then
+			-- Извлекаем имя файла из полного пути
+			local name = file:match("([^/\\]+)%.cfg$")
+			if name then
+				list[#list + 1] = name
+			end
+		end
 	end
 
 	library.config_holder:refresh_options(list)
