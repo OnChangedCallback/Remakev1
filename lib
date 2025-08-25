@@ -55,6 +55,7 @@ getgenv().library = {
 	sin = 0,
 	keybind_path,
 	panel_open = false,
+	elements = {}, -- Хранилище всех UI элементов
 
 	directory = "inactivity",
 	folders = {
@@ -359,6 +360,62 @@ function library:convert_enum(enum)
 	end
 
 	return enum_table
+end
+
+function library:register_dependency(element)
+	if not element.dependency then return end
+	
+	local parent_flag = element.dependency.flag
+	if not library.elements then
+		library.elements = {}
+	end
+	
+	-- Ждем пока родительский элемент будет создан
+	task.spawn(function()
+		local attempts = 0
+		while not library.elements[parent_flag] and attempts < 50 do
+			task.wait(0.1)
+			attempts = attempts + 1
+		end
+		
+		if library.elements[parent_flag] then
+			local parent = library.elements[parent_flag]
+			if not parent.dependent_elements then
+				parent.dependent_elements = {}
+			end
+			table.insert(parent.dependent_elements, element)
+			
+			-- Устанавливаем начальную видимость
+			local should_show = false
+			local current_value = flags[parent_flag]
+			
+			if type(element.dependency.value) == "boolean" then
+				should_show = (current_value == element.dependency.value)
+			elseif type(element.dependency.value) == "string" then
+				should_show = (current_value == element.dependency.value)
+			elseif type(element.dependency.value) == "table" then
+				if type(current_value) == "table" then
+					for _, dep_val in pairs(element.dependency.value) do
+						if table.find(current_value, dep_val) then
+							should_show = true
+							break
+						end
+					end
+				else
+					for _, val in pairs(element.dependency.value) do
+						if current_value == val then
+							should_show = true
+							break
+						end
+					end
+				end
+			end
+			
+			if element.object then
+				element.object.Visible = should_show
+			end
+		end
+	end)
 end
 
 function library:config_list_update()
@@ -3297,6 +3354,8 @@ function library:toggle(properties)
 		flag = properties.flag or tostring(math.random(1, 9999999)),
 		callback = properties.callback or function() end,
 		default = properties.default or false,
+		dependency = properties.dependency or nil, -- {flag = "flag_name", value = true/false/"value"}
+		dependent_elements = {}, -- элементы которые зависят от этого toggle
 		previous_holder = self,
 	}
 
@@ -3414,6 +3473,27 @@ function library:toggle(properties)
 		flags[cfg.flag] = bool
 
 		cfg.callback(bool)
+		
+		-- Обновляем видимость зависимых элементов
+		for _, element in pairs(cfg.dependent_elements) do
+			if element.dependency and element.dependency.flag == cfg.flag then
+				local should_show = false
+				if type(element.dependency.value) == "boolean" then
+					should_show = (bool == element.dependency.value)
+				elseif type(element.dependency.value) == "table" then
+					for _, val in pairs(element.dependency.value) do
+						if bool == val then
+							should_show = true
+							break
+						end
+					end
+				end
+				
+				if element.object then
+					element.object.Visible = should_show
+				end
+			end
+		end
 	end
 
 	library:connection(object.MouseButton1Click, function()
@@ -3435,6 +3515,16 @@ function library:toggle(properties)
 	self.right_holder = right_components
 
 	config_flags[cfg.flag] = cfg.set
+	
+	-- Регистрируем элемент как зависимый если есть dependency
+	if cfg.dependency then
+		library:register_dependency(cfg)
+	end
+	
+	-- Сохраняем ссылку на элемент для управления зависимостями
+	cfg.object = object
+	library.elements = library.elements or {}
+	library.elements[cfg.flag] = cfg
 
 	return setmetatable(cfg, library)
 end
@@ -3453,6 +3543,7 @@ function library:slider(properties)
 
 		dragging = false,
 		value = properties.default or 10,
+		dependency = properties.dependency or nil,
 
 		previous_holder = self,
 	}
@@ -3672,6 +3763,16 @@ function library:slider(properties)
 	config_flags[cfg.flag] = cfg.set
 
 	library.config_flags[cfg.flag] = cfg.set
+	
+	-- Регистрируем элемент как зависимый если есть dependency
+	if cfg.dependency then
+		library:register_dependency(cfg)
+	end
+	
+	-- Сохраняем ссылку на элемент для управления зависимостями
+	cfg.object = cfg.name and object or slider_holder
+	library.elements = library.elements or {}
+	library.elements[cfg.flag] = cfg
 
 	return setmetatable(cfg, library)
 end
@@ -3684,6 +3785,8 @@ function library:dropdown(properties)
 		items = properties.items or { "1", "2", "3" },
 		callback = properties.callback or function() end,
 		multi = properties.multi or false,
+		dependency = properties.dependency or nil, -- {flag = "flag_name", value = "value"/["val1", "val2"]}
+		dependent_elements = {}, -- элементы которые зависят от этого dropdown
 
 		open = false,
 		option_instances = {},
@@ -3911,6 +4014,40 @@ function library:dropdown(properties)
 		dropdown.Text = is_table and table.concat(selected, ",  ") or selected[1] or ""
 		flags[cfg.flag] = is_table and selected or selected[1]
 		cfg.callback(flags[cfg.flag])
+		
+		-- Обновляем видимость зависимых элементов
+		for _, element in pairs(cfg.dependent_elements) do
+			if element.dependency and element.dependency.flag == cfg.flag then
+				local should_show = false
+				local current_value = flags[cfg.flag]
+				
+				if type(element.dependency.value) == "string" then
+					should_show = (current_value == element.dependency.value)
+				elseif type(element.dependency.value) == "table" then
+					if is_table then
+						-- Проверяем пересечение массивов
+						for _, dep_val in pairs(element.dependency.value) do
+							if table.find(current_value, dep_val) then
+								should_show = true
+								break
+							end
+						end
+					else
+						-- Проверяем вхождение в массив
+						for _, val in pairs(element.dependency.value) do
+							if current_value == val then
+								should_show = true
+								break
+							end
+						end
+					end
+				end
+				
+				if element.object then
+					element.object.Visible = should_show
+				end
+			end
+		end
 	end
 
 	function cfg:refresh_options(refreshed_list)
@@ -3980,6 +4117,16 @@ function library:dropdown(properties)
 	cfg.set(cfg.default)
 
 	library.config_flags[cfg.flag] = cfg.set
+	
+	-- Регистрируем элемент как зависимый если есть dependency
+	if cfg.dependency then
+		library:register_dependency(cfg)
+	end
+	
+	-- Сохраняем ссылку на элемент для управления зависимостями
+	cfg.object = object
+	library.elements = library.elements or {}
+	library.elements[cfg.flag] = cfg
 
 	return setmetatable(cfg, library)
 end
@@ -5189,6 +5336,7 @@ function library:button(properties)
 	local cfg = {
 		callback = properties.callback or function() end,
 		name = properties.text or properties.name or "Button",
+		dependency = properties.dependency or nil,
 	}
 
 	local button_inline = library:create("Frame", {
@@ -5218,6 +5366,16 @@ function library:button(properties)
 	button.MouseButton1Click:Connect(function()
 		cfg.callback()
 	end)
+	
+	-- Регистрируем элемент как зависимый если есть dependency
+	if cfg.dependency then
+		library:register_dependency(cfg)
+	end
+	
+	-- Сохраняем ссылку на элемент для управления зависимостями
+	cfg.object = button_inline
+	library.elements = library.elements or {}
+	library.elements[cfg.name] = cfg
 
 	return setmetatable(cfg, library)
 end
@@ -5233,6 +5391,7 @@ function library:textbox(properties)
 		clear_on_focus = properties.clearonfocus or false,
 		flag = properties.flag or "SET ME NIGGA",
 		callback = properties.callback or function() end,
+		dependency = properties.dependency or nil,
 	}
 
 	local textbox_inline = library:create("Frame", {
