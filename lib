@@ -47,7 +47,6 @@ getgenv().library = {
 	notifications = {},
 	instances = {},
 	main_frame = {},
-	dependency_boxes = {},
 	config_holder,
 	current_tab,
 	current_element_open,
@@ -241,12 +240,6 @@ function library:connection(signal, callback)
 	return connection
 end
 
-function library:update_dependency_boxes()
-	for _, depbox in next, library.dependency_boxes do
-		depbox:update()
-	end
-end
-
 -- dragging system
 function library:make_draggable(frame)
 	local dragging = false
@@ -369,20 +362,16 @@ function library:convert_enum(enum)
 end
 
 function library:config_list_update()
-	if not isfolder(library.directory .. "/configs") then
-		makefolder(library.directory .. "/configs")
+	if not library.config_holder then
+		return
 	end
 
 	local list = {}
 
 	for idx, file in next, listfiles(library.directory .. "/configs") do
-		if file then
-			-- Извлекаем имя файла из полного пути
-			local name = file:match("([^/\\]+)%.cfg$")
-			if name then
-				list[#list + 1] = name
-			end
-		end
+		local name = file.split(file, "/configs/")[2]
+		name = name.split(name, ".cfg")[1]
+		list[#list + 1] = name
 	end
 
 	library.config_holder:refresh_options(list)
@@ -2876,70 +2865,6 @@ function library:section(properties)
 
 	cfg["holder"] = elements
 
-	function cfg:add_dependency_box()
-		local depbox = {
-			dependencies = {},
-			holder = nil
-		}
-		
-		-- Создаем контейнер для зависимых элементов
-		local dependency_frame = library:create("Frame", {
-			Parent = elements,
-			Name = "DependencyBox",
-			BorderColor3 = Color3.fromRGB(0, 0, 0),
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			Size = UDim2.new(1, 0, 0, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
-			BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-		})
-		
-		local dependency_layout = library:create("UIListLayout", {
-			Parent = dependency_frame,
-			Name = "",
-			SortOrder = Enum.SortOrder.LayoutOrder,
-			HorizontalAlignment = Enum.HorizontalAlignment.Center,
-			Padding = UDim.new(0, 3),
-		})
-		
-		depbox.holder = dependency_frame
-		
-		-- Функция обновления видимости
-		function depbox:update()
-			for _, dependency in next, depbox.dependencies do
-				local flag = dependency[1]
-				local value = dependency[2]
-				
-				if library.flags[flag] ~= value then
-					dependency_frame.Visible = false
-					return
-				end
-			end
-			
-			dependency_frame.Visible = true
-		end
-		
-		-- Функция добавления зависимости
-		function depbox:add_dependency(flag, value)
-			table.insert(depbox.dependencies, {flag, value})
-			depbox:update()
-		end
-		
-		-- Добавляем в глобальный список
-		table.insert(library.dependency_boxes, depbox)
-		
-		-- Возвращаем объект с holder для добавления элементов
-		return {
-			holder = dependency_frame,
-			add_dependency = function(self, flag, value)
-				depbox:add_dependency(flag, value)
-			end,
-			update = function(self)
-				depbox:update()
-			end
-		}
-	end
-
 	return setmetatable(cfg, library)
 end
 
@@ -3489,9 +3414,6 @@ function library:toggle(properties)
 		flags[cfg.flag] = bool
 
 		cfg.callback(bool)
-		
-		-- Обновляем зависимости
-		library:update_dependency_boxes()
 	end
 
 	library:connection(object.MouseButton1Click, function()
