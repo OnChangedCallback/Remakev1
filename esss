@@ -367,7 +367,29 @@ function Fonts.get_font_tuning(font_name)
     return tuning
 end
 
+function Fonts.load_all_fonts()
+    if not _G.loaded_fonts then
+        _G.loaded_fonts = {
+            ["ProggyClean"] = vars.Enum.Font.SourceSans,
+            ["ProggyTiny"] = vars.Enum.Font.SourceSans,
+            ["Minecraftia"] = vars.Enum.Font.SourceSans,
+            ["SmallestPixel7"] = vars.Enum.Font.SourceSans,
+            ["Verdana"] = vars.Enum.Font.Verdana,
+            ["VerdanaBold"] = vars.Enum.Font.VerdanaBold,
+            ["Tahoma"] = vars.Enum.Font.SourceSans,
+            ["TahomaBold"] = vars.Enum.Font.SourceSansBold,
+            ["CSGO"] = vars.Enum.Font.SourceSans,
+            ["WindowsXPTahoma"] = vars.Enum.Font.SourceSans,
+            ["Stratum2"] = vars.Enum.Font.SourceSans,
+            ["Visitor"] = vars.Enum.Font.SourceSans
+        }
+    end
+end
+
 function Fonts.get_font(font_name)
+    if not _G.loaded_fonts then
+        Fonts.load_all_fonts()
+    end
     return _G.loaded_fonts[font_name] or _G.loaded_fonts["ProggyClean"]
 end
 
