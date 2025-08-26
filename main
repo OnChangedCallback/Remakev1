@@ -193,18 +193,6 @@ do
         local watermark_type = flags["watermark_type"]
         local parts = {}
         
-        local get_game_name = function()
-            if game_name_cache ~= nil then
-                return game_name_cache
-            end
-            local success, info = pcall(function()
-                return vars.MarketplaceService:GetProductInfo(game.PlaceId)
-            end)
-            local name = success and info and info.Name or tostring(game.PlaceId)
-            game_name_cache = name
-            return name
-        end
-        
         if type(watermark_type) == "table" then
             local selected = {}
             for _, option in next, watermark_type do
@@ -229,7 +217,7 @@ do
             parts[1] = os.date("%H:%M:%S")
         end
         
-        return "Rebuild.gg - " .. table.concat(parts, " - ")
+        return "luasex - " .. table.concat(parts, " - ")
     end
     
     -- Безопасное выполнение HTTP запроса с повторными попытками
@@ -302,8 +290,14 @@ end
 
 -- Загрузка ESP библиотеки
 do
-    loadstring(game:HttpGet("https://raw.githubusercontent.com/OnChangedCallback/Remakev1/refs/heads/main/esp"))()
-    print("esploaded")
+    local success, err = pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/OnChangedCallback/Remakev1/refs/heads/main/esp"))()
+    end)
+    if success then
+        print("esploaded")
+    else
+        warn("Failed to load ESP library:", err)
+    end
 end
 
 -- Создание UI
@@ -323,7 +317,7 @@ do
     
     -- Создание HUD элементов
     watermark = library:watermark({
-        text = "Rebuild.gg - " .. vars.os_date("%H:%M:%S")
+        text = "luasex - " .. vars.os_date("%H:%M:%S")
     })
     
     radar = library:radar({
@@ -558,7 +552,7 @@ do
                 -- Добавляем всех игроков при включении радара
                 for _, player in ipairs(vars.Players:GetPlayers()) do
                     if player ~= vars.LocalPlayer and radar and radar.add_dot then
-                        radar.add_dot(player)
+                        pcall(function() radar.add_dot(player) end)
                     end
                 end
             end
@@ -642,13 +636,13 @@ end
 do
     framework.add_player_to_radar = function(player)
         if player ~= vars.LocalPlayer and radar and radar.add_dot then
-            radar.add_dot(player)
+            pcall(function() radar.add_dot(player) end)
         end
     end
     
     framework.remove_player_from_radar = function(player)
         if radar and radar.remove_dot then
-            radar.remove_dot(player)
+            pcall(function() radar.remove_dot(player) end)
         end
     end
     
@@ -659,7 +653,7 @@ do
                     local character = player.Character
                     local root = character and character:FindFirstChild("HumanoidRootPart")
                     if root then
-                        radar.update_dot(player, root.Position)
+                        pcall(function() radar.update_dot(player, root.Position) end)
                     end
                 end
             end
@@ -703,9 +697,15 @@ do
         default = false,
         callback = function(enabled)
             if enabled then
-                _G.ESP_Start()
+                if _G.ESP_Start then
+                    _G.ESP_Start()
+                else
+                    utility.notify("ESP library not loaded!", 3)
+                end
             else
-                _G.ESP_Stop()
+                if _G.ESP_Stop then
+                    _G.ESP_Stop()
+                end
             end
         end
     })
