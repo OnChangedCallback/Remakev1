@@ -1279,6 +1279,27 @@ function ESP_Library.updateConfig(newConfig)
     end
 end
 
+function ESP_Library.refreshTextElements()
+    -- Принудительно обновляем текстовые элементы для всех игроков
+    for player, objects in pairs(I) do
+        if objects and objects.Text then
+            -- Обновляем стили для каждого текстового элемента
+            for textType, textObj in pairs(objects.Text) do
+                if textObj and textObj.label then
+                    local style = Fonts.get_text_style(textType)
+                    if style then
+                        textObj.label.FontFace = Fonts.get_font(style.fontName)
+                        textObj.label.TextSize = style.size
+                        textObj.label.TextColor3 = style.text_c
+                        textObj.label.TextStrokeColor3 = style.stroke_c
+                        textObj.label.TextStrokeTransparency = style.stroke_t
+                    end
+                end
+            end
+        end
+    end
+end
+
 function ESP_Library.cleanup()
     -- Clear all ESP objects
     for player, objects in pairs(I) do
