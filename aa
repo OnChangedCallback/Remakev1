@@ -52,10 +52,6 @@ local vars = {
     min3 = Vector3.zero.Min,
     max3 = Vector3.zero.Max,
     
-    -- Font and Enum
-    Font = Font,
-    Enum = Enum,
-    
     -- Camera functions
     wtvp = workspace.CurrentCamera.WorldToViewportPoint,
     
@@ -65,6 +61,9 @@ local vars = {
     findFirstChild = workspace.FindFirstChild,
     findFirstChildOfClass = workspace.FindFirstChildOfClass,
     getChildren = workspace.GetChildren,
+    
+    -- Enums
+    Enum = Enum,
     ColorSequence = ColorSequence,
     ColorSequenceKeypoint = ColorSequenceKeypoint
 }
@@ -433,19 +432,12 @@ local font_sources = {
 
 local loaded_fonts = {}
 
--- Множество доступных кастомных шрифтов (по именам из font_sources)
-local custom_font_names = {}
-for _, m in vars.pairs(font_sources) do
-    local s = m[1]:match("([^%.]+)")
-    custom_font_names[s] = true
-end
-
 function Fonts.load_all_fonts()
     for l, m in vars.pairs(font_sources) do
         local n, p, q = m[1], m[2], m[3]
         if not isfile(n) then
-            local r = game:HttpGet(q)
-            writefile(n, utility.decodeBase64(r))
+            local r = vars.HttpService:HttpGet(q)
+            writefile(n, decode_base64(r))
         end
         if not isfile(p) then
             local s = n:match("([^%.]+)")
@@ -454,87 +446,28 @@ function Fonts.load_all_fonts()
         end
     end
 
-    -- Загружаем шрифты используя Font.fromId или Font.new
     for l, m in vars.pairs(font_sources) do
         local s = m[1]:match("([^%.]+)")
-        local success, font = pcall(function()
-            -- Пробуем создать Font объект
-            if vars.Font then
-                return vars.Font.new(getcustomasset(m[2]), vars.Enum.FontWeight.Regular)
-            else
-                -- Если Font недоступен, используем Enum.Font
-                return vars.Enum.Font[s] or vars.Enum.Font.SourceSans
-            end
-        end)
-        
-        if success then
-            loaded_fonts[s] = font
-        else
-            -- Если не удалось загрузить, используем дефолтный
-            loaded_fonts[s] = vars.Enum.Font.SourceSans
-        end
-    end
-    
-    -- Убедимся что ProggyClean загружен
-    if not loaded_fonts["ProggyClean"] then
-        loaded_fonts["ProggyClean"] = vars.Enum.Font.Code or vars.Enum.Font.SourceSans
+        loaded_fonts[s] = Font.new(getcustomasset(m[2]), vars.Enum.FontWeight.Regular)
     end
 end
 
 function Fonts.get_font(font_name)
-    -- 1) Проверяем кеш загруженных шрифтов
-    local font = loaded_fonts[font_name]
-    if font then
-        return font
-    end
-
-    -- 2) Если это кастомный шрифт, пробуем подгрузить пакет шрифтов и вернуть
-    if custom_font_names[font_name] then
-        pcall(function()
-            Fonts.load_all_fonts()
-        end)
-        if loaded_fonts[font_name] then
-            return loaded_fonts[font_name]
-        end
-    end
-
-    -- 3) Безопасно пробуем Enum.Font через pcall (на случай, если имя отсутствует)
-    if vars.Enum and vars.Enum.Font then
-        local ok, enum_font = pcall(function()
-            return vars.Enum.Font[font_name]
-        end)
-        if ok and enum_font then
-            return enum_font
-        end
-    end
-
-    -- 4) Безопасный дефолт
-    local default_enum = (vars.Enum and vars.Enum.Font and (vars.Enum.Font.Code or vars.Enum.Font.SourceSans))
-    return loaded_fonts["ProggyClean"] or default_enum
+    return loaded_fonts[font_name] or loaded_fonts["ProggyClean"]
 end
 
 function Fonts.get_text_style(text_type)
-    -- Получаем настройки из конфига для конкретного типа текста
-    local font_name = "TahomaBold" -- дефолтный шрифт (синхронизирован с UI)
-    local text_size = 13
-    local text_color = vars.Color3(255, 255, 255)
-    
-    -- Проверяем конфиг для каждого типа текста
-    if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text[text_type] then
-        local config = _G.ESP_Config.Text[text_type]
-        font_name = config.Font or font_name
-        text_size = config.Size or text_size
-        text_color = config.Color or text_color
-    end
-    
-    -- Возвращаем стиль текста с Font объектом
+    local config_text = _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text[text_type] or {}
+    local default_font_name = _G.ESP_Config and _G.ESP_Config.Box and _G.ESP_Config.Box.Font or "ProggyClean"
+    local font_name = config_text.Font or default_font_name
+    local tuning = Fonts.get_font_tuning(font_name)
+
     return {
         fontName = font_name,
-        font = Fonts.get_font(font_name),
-        size = text_size,
-        text_c = text_color,
-        stroke_c = vars.Color3(0, 0, 0),
-        stroke_t = 0
+        size = config_text.Size or tuning.size,
+        stroke_t = config_text.StrokeTransparency ~= nil and config_text.StrokeTransparency or tuning.stroke_t,
+        stroke_c = config_text.StrokeColor or tuning.stroke_c,
+        text_c = config_text.Color or vars.Color3(255, 255, 255)
     }
 end
 
@@ -555,34 +488,7 @@ function Rendering.make_text(parent, text_type)
     R.TextStrokeColor3 = U.stroke_c
     R.TextStrokeTransparency = U.stroke_t
     R.TextSize = U.size
-    
-    -- Применяем шрифт
-    if U.font then
-        -- Проверяем тип шрифта и применяем соответствующим образом
-        local font_type = type(U.font)
-        if font_type == "userdata" then
-            -- Если это Font объект, используем FontFace
-            local success = pcall(function()
-                R.FontFace = U.font
-            end)
-            
-            if not success then
-                -- Если FontFace не работает, пробуем Font
-                pcall(function()
-                    R.Font = U.font
-                end)
-            end
-        elseif font_type == "string" then
-            -- Если это строка, устанавливаем как Font enum
-            pcall(function()
-                R.Font = vars.Enum.Font[U.font] or vars.Enum.Font.SourceSans
-            end)
-        end
-    else
-        -- Дефолтный шрифт
-        R.Font = vars.Enum.Font.Code or vars.Enum.Font.SourceSans
-    end
-    
+    R.FontFace = Fonts.get_font(U.fontName)
     return R
 end
 
@@ -1060,39 +966,12 @@ function Rendering.update(player)
                 if bB.side == bu then
                     local bC = bB.label
                     if bB.enable then
-                        -- Обновляем tune каждый кадр для подхвата изменений шрифтов
-                        local style = Fonts.get_text_style(bB.key)
                         bC.Visible = true
-                        
-                        -- Применяем шрифт
-                        if style.font then
-                            local font_type = type(style.font)
-                            if font_type == "userdata" then
-                                -- Font объект
-                                local success = pcall(function()
-                                    bC.FontFace = style.font
-                                end)
-                                
-                                if not success then
-                                    pcall(function()
-                                        bC.Font = style.font
-                                    end)
-                                end
-                            elseif font_type == "string" then
-                                -- Строка с именем шрифта
-                                pcall(function()
-                                    bC.Font = vars.Enum.Font[style.font] or vars.Enum.Font.SourceSans
-                                end)
-                            end
-                        else
-                            -- Дефолтный шрифт
-                            bC.Font = vars.Enum.Font.Code or vars.Enum.Font.SourceSans
-                        end
-                        
-                        bC.TextSize = style.size
-                        bC.TextColor3 = style.text_c
-                        bC.TextStrokeColor3 = style.stroke_c
-                        bC.TextStrokeTransparency = style.stroke_t
+                        bC.FontFace = Fonts.get_font(bB.tune.fontName) or bC.FontFace
+                        bC.TextSize = bB.tune.size
+                        bC.TextColor3 = bB.tune.text_c
+                        bC.TextStrokeColor3 = bB.tune.stroke_c
+                        bC.TextStrokeTransparency = bB.tune.stroke_t
                         if bB.key == "Name" then
                             bC.Text = player.Name
                         elseif bB.key == "Tool" then
@@ -1508,96 +1387,6 @@ _G.ESP_Stop = function()
         print("[ESP] ESP Stopped successfully")
     else
         print("[ESP] ESP not running")
-    end
-end
-
--- Utility функции для изменения шрифтов ESP
-do
-    -- Функция для обновления шрифта в существующих текстовых элементах
-    local function updateExistingTextFont(textType, newFont)
-        -- Если ESP ещё не создал элементы, просто выходим (конфиг уже обновлён выше)
-        if not I or type(I) ~= "table" or not next(I) then
-            return
-        end
-
-        -- Обновляем все существующие ESP элементы
-        for player, espData in vars.pairs(I) do
-            if espData and espData.Text and espData.Text[textType] then
-                local textLabel = espData.Text[textType].Gui
-                if textLabel then
-                    -- Получаем Font объект только когда реально есть, куда применять
-                    local fontObject = Fonts.get_font(newFont)
-
-                    local applied = false
-                    -- 1) Пытаемся применить FontFace (для кастомных Font объектов)
-                    if fontObject then
-                        local ok1 = pcall(function()
-                            textLabel.FontFace = fontObject
-                        end)
-                        applied = ok1
-                    end
-
-                    -- 2) Если не получилось, пробуем напрямую в Font (EnumItem или совместимый тип)
-                    if not applied and fontObject then
-                        local ok2 = pcall(function()
-                            textLabel.Font = fontObject
-                        end)
-                        applied = ok2
-                    end
-
-                    -- 3) Жёсткий fallback на безопасный дефолт Enum без обращения по имени
-                    if not applied then
-                        pcall(function()
-                            textLabel.Font = (vars.Enum and vars.Enum.Font and (vars.Enum.Font.Code or vars.Enum.Font.SourceSans))
-                        end)
-                    end
-                end
-            end
-        end
-    end
-    
-    -- Функция для изменения шрифта Name
-    _G.changeEspNameFont = function(fontName)
-        if not fontName then return end
-        
-        -- Обновляем конфиг
-        _G.ESP_Config.Text.Name.Font = fontName
-        
-        -- Обновляем существующие элементы
-        updateExistingTextFont("Name", fontName)
-    end
-    
-    -- Функция для изменения шрифта Studs/Distance
-    _G.changeEspStudsFont = function(fontName)
-        if not fontName then return end
-        
-        -- Обновляем конфиг
-        _G.ESP_Config.Text.Studs.Font = fontName
-        
-        -- Обновляем существующие элементы
-        updateExistingTextFont("Studs", fontName)
-    end
-    
-    -- Функция для изменения шрифта Tool
-    _G.changeEspToolFont = function(fontName)
-        if not fontName then return end
-        
-        -- Обновляем конфиг
-        _G.ESP_Config.Text.Tool.Font = fontName
-        
-        -- Обновляем существующие элементы
-        updateExistingTextFont("Tool", fontName)
-    end
-    
-    -- Функция для изменения шрифта State
-    _G.changeEspStateFont = function(fontName)
-        if not fontName then return end
-        
-        -- Обновляем конфиг
-        _G.ESP_Config.Text.State.Font = fontName
-        
-        -- Обновляем существующие элементы
-        updateExistingTextFont("State", fontName)
     end
 end
 
