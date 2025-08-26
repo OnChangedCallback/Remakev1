@@ -270,6 +270,48 @@ _G.ESP_Config = {
             box = false,
             boxColor = { Color3.new(1,0,0), 1 }
         }
+    },
+    SelfESP = {
+        Enable = false,
+        Box = {
+            Enable = false,
+            Color = vars.Color3(0, 255, 255),
+            Filled = {
+                Enable = false,
+                Transparency = 0.3,
+                Color = vars.Color3(0, 255, 255)
+            }
+        },
+        Text = {
+            Name = {
+                Enable = false,
+                Color = vars.Color3(0, 255, 255)
+            },
+            Distance = {
+                Enable = false,
+                Color = vars.Color3(255, 255, 255)
+            },
+            Tool = {
+                Enable = false,
+                Color = vars.Color3(255, 255, 0)
+            },
+            State = {
+                Enable = false,
+                Color = vars.Color3(255, 255, 255)
+            }
+        },
+        Bars = {
+            Health = {
+                Enable = false,
+                Color1 = vars.Color3(0, 255, 0),
+                Color2 = vars.Color3(0, 200, 0)
+            },
+            Armor = {
+                Enable = false,
+                Color1 = vars.Color3(0, 150, 255),
+                Color2 = vars.Color3(0, 100, 200)
+            }
+        }
     }
 }
 
@@ -1097,10 +1139,73 @@ function Rendering.update(player)
                 ak.Position = vars.UDim2(0, af.X + bM - 1, 0, aO - 1)
                 ak.Size = vars.UDim2(0, math.floor(aL + 2), 0, bN + 2)
                 ak.BackgroundTransparency = 0.2
-                aB.Visible = true
                 aB.Position = vars.UDim2(0, 1, 0, 1)
                 aB.Size = vars.UDim2(0, bI * aL, 0, bN)
             end
+        end
+    end
+end
+
+function Rendering.update_self_esp(player)
+    if not player or player ~= vars.LocalPlayer or not _G.ESP_Config.SelfESP.Enable then
+        return
+    end
+    
+    if not I[player] then
+        Rendering.render(player)
+    end
+    
+    local character = player.Character
+    if not character then
+        Rendering.clear_esp(player)
+        return
+    end
+    
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChildWhichIsA("Humanoid")
+    if not rootPart or not humanoid then
+        Rendering.clear_esp(player)
+        return
+    end
+    
+    local camera = vars.Camera
+    local screenPos, onScreen = camera:WorldToViewportPoint(rootPart.Position)
+    if not onScreen then
+        Rendering.clear_esp(player)
+        return
+    end
+    
+    local distance = (camera.CFrame.Position - rootPart.Position).Magnitude
+    local scale = math.max(0.1, 1000 / distance)
+    local boxSize = vars.Vector2(math.floor(scale * 4), math.floor(scale * 6))
+    local boxPos = vars.Vector2(math.floor(screenPos.X - boxSize.X / 2), math.floor(screenPos.Y - boxSize.Y / 2))
+    
+    local playerData = I[player]
+    
+    -- SelfESP Box
+    if _G.ESP_Config.SelfESP.Box.Enable and playerData.Box and playerData.Box.Full then
+        local box = playerData.Box.Full
+        box.Square.Visible = true
+        box.Square.Position = boxPos
+        box.Square.Size = boxSize
+        box.Square.Color = _G.ESP_Config.SelfESP.Box.Color
+        box.Square.Thickness = 2
+        box.Square.Filled = false
+        
+        box.Outline.Visible = true
+        box.Outline.Position = boxPos - vars.Vector2(1, 1)
+        box.Outline.Size = boxSize + vars.Vector2(2, 2)
+        box.Outline.Color = vars.Color3(0, 0, 0)
+        box.Outline.Thickness = 1
+        box.Outline.Filled = false
+        
+        if _G.ESP_Config.SelfESP.Box.Filled.Enable and box.Filled then
+            local F = vars.GuiService:GetGuiInset()
+            box.Filled.Position = vars.UDim2(0, boxPos.X, 0, boxPos.Y - F.Y)
+            box.Filled.Size = vars.UDim2(0, boxSize.X, 0, boxSize.Y)
+            box.Filled.BackgroundTransparency = _G.ESP_Config.SelfESP.Box.Filled.Transparency
+            box.Filled.BackgroundColor3 = _G.ESP_Config.SelfESP.Box.Filled.Color
+            box.Filled.Visible = true
         end
     end
 end
@@ -1198,15 +1303,28 @@ local function setup_player_esp(player)
     Rendering.render(player)
 end
 
+local function setup_self_esp()
+    if _G.ESP_Config.SelfESP.Enable then
+        Rendering.render(vars.LocalPlayer)
+    end
+end
+
 local function remove_player_esp(player)
     if not player then return end
     Rendering.cleanup_player_esp(player)
+end
+
+local function remove_self_esp()
+    Rendering.cleanup_player_esp(vars.LocalPlayer)
 end
 
 function Core.init()
     for l, V in vars.ipairs(vars.Players:GetPlayers()) do
         setup_player_esp(V)
     end
+    
+    -- Инициализируем SelfESP
+    setup_self_esp()
 
     H.main.PlayerAdded = vars.Players.PlayerAdded:Connect(setup_player_esp)
     H.main.PlayerRemoving = vars.Players.PlayerRemoving:Connect(remove_player_esp)
@@ -1216,6 +1334,11 @@ function Core.init()
             if V ~= vars.LocalPlayer then
                 Rendering.update(V)
             end
+        end
+        
+        -- Обновляем SelfESP
+        if _G.ESP_Config.SelfESP.Enable then
+            Rendering.update_self_esp(vars.LocalPlayer)
         end
     end)
 
