@@ -433,6 +433,13 @@ local font_sources = {
 
 local loaded_fonts = {}
 
+-- Множество доступных кастомных шрифтов (по именам из font_sources)
+local custom_font_names = {}
+for _, m in vars.pairs(font_sources) do
+    local s = m[1]:match("([^%.]+)")
+    custom_font_names[s] = true
+end
+
 function Fonts.load_all_fonts()
     for l, m in vars.pairs(font_sources) do
         local n, p, q = m[1], m[2], m[3]
@@ -475,22 +482,35 @@ function Fonts.load_all_fonts()
 end
 
 function Fonts.get_font(font_name)
-    -- Проверяем загруженные шрифты
+    -- 1) Проверяем кеш загруженных шрифтов
     local font = loaded_fonts[font_name]
     if font then
         return font
     end
-    
-    -- Пробуем найти в Enum.Font
+
+    -- 2) Если это кастомный шрифт, пробуем подгрузить пакет шрифтов и вернуть
+    if custom_font_names[font_name] then
+        pcall(function()
+            Fonts.load_all_fonts()
+        end)
+        if loaded_fonts[font_name] then
+            return loaded_fonts[font_name]
+        end
+    end
+
+    -- 3) Безопасно пробуем Enum.Font через pcall (на случай, если имя отсутствует)
     if vars.Enum and vars.Enum.Font then
-        local enum_font = vars.Enum.Font[font_name]
-        if enum_font then
+        local ok, enum_font = pcall(function()
+            return vars.Enum.Font[font_name]
+        end)
+        if ok and enum_font then
             return enum_font
         end
     end
-    
-    -- Возвращаем дефолтный
-    return loaded_fonts["ProggyClean"] or vars.Enum.Font.Code or vars.Enum.Font.SourceSans
+
+    -- 4) Безопасный дефолт
+    local default_enum = (vars.Enum and vars.Enum.Font and (vars.Enum.Font.Code or vars.Enum.Font.SourceSans))
+    return loaded_fonts["ProggyClean"] or default_enum
 end
 
 function Fonts.get_text_style(text_type)
@@ -1495,29 +1515,40 @@ end
 do
     -- Функция для обновления шрифта в существующих текстовых элементах
     local function updateExistingTextFont(textType, newFont)
-        -- Получаем Font объект для нового шрифта
-        local fontObject = Fonts.get_font(newFont)
-        
+        -- Если ESP ещё не создал элементы, просто выходим (конфиг уже обновлён выше)
+        if not I or type(I) ~= "table" or not next(I) then
+            return
+        end
+
         -- Обновляем все существующие ESP элементы
         for player, espData in vars.pairs(I) do
             if espData and espData.Text and espData.Text[textType] then
                 local textLabel = espData.Text[textType].Gui
                 if textLabel then
-                    -- Применяем новый шрифт
-                    local success = pcall(function()
-                        if type(fontObject) == "userdata" then
+                    -- Получаем Font объект только когда реально есть, куда применять
+                    local fontObject = Fonts.get_font(newFont)
+
+                    local applied = false
+                    -- 1) Пытаемся применить FontFace (для кастомных Font объектов)
+                    if fontObject then
+                        local ok1 = pcall(function()
                             textLabel.FontFace = fontObject
-                        elseif type(fontObject) == "string" then
-                            textLabel.Font = vars.Enum.Font[fontObject] or vars.Enum.Font.SourceSans
-                        else
+                        end)
+                        applied = ok1
+                    end
+
+                    -- 2) Если не получилось, пробуем напрямую в Font (EnumItem или совместимый тип)
+                    if not applied and fontObject then
+                        local ok2 = pcall(function()
                             textLabel.Font = fontObject
-                        end
-                    end)
-                    
-                    if not success then
-                        -- Fallback на установку через Font свойство
+                        end)
+                        applied = ok2
+                    end
+
+                    -- 3) Жёсткий fallback на безопасный дефолт Enum без обращения по имени
+                    if not applied then
                         pcall(function()
-                            textLabel.Font = vars.Enum.Font[newFont] or vars.Enum.Font.SourceSans
+                            textLabel.Font = (vars.Enum and vars.Enum.Font and (vars.Enum.Font.Code or vars.Enum.Font.SourceSans))
                         end)
                     end
                 end
