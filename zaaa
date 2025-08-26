@@ -2197,6 +2197,7 @@ function library:watermark(options)
 
 	library:create("UIStroke", {
 		Parent = text,
+		Name = "",
 		LineJoinMode = Enum.LineJoinMode.Miter,
 	})
 
@@ -2210,23 +2211,6 @@ function library:watermark(options)
 		BackgroundColor3 = themes.preset.accent,
 	})
 	library:apply_theme(accent, "accent", "BackgroundColor3")
-
-	-- Добавляем glow эффект для watermark
-	local watermark_glow = library:create("ImageLabel", {
-		Parent = watermark_outline,
-		Name = "",
-		ImageColor3 = themes.preset.glow,
-		ScaleType = Enum.ScaleType.Slice,
-		BorderColor3 = rgb(0, 0, 0),
-		BackgroundTransparency = 1,
-		Image = "rbxasset://textures/ui/Controls/DesignSystem/DropShadow.png",
-		Position = dim2(0, -8, 0, -6),
-		Size = dim2(1, 16, 1, 12),
-		BorderSizePixel = 0,
-		SliceCenter = rect(vec2(21, 21), vec2(79, 79)),
-		ImageTransparency = 0.4,
-	})
-	library:apply_theme(watermark_glow, "glow", "ImageColor3")
 
 	local UIGradient = library:create("UIGradient", {
 		Parent = accent,
@@ -2345,23 +2329,6 @@ function library:radar(options)
 		BackgroundColor3 = themes.preset.accent,
 	})
 	library:apply_theme(accent, "accent", "BackgroundColor3")
-
-	-- Добавляем glow эффект для радара
-	local radar_glow = library:create("ImageLabel", {
-		Parent = radar_outline,
-		Name = "",
-		ImageColor3 = themes.preset.glow,
-		ScaleType = Enum.ScaleType.Slice,
-		BorderColor3 = rgb(0, 0, 0),
-		BackgroundTransparency = 1,
-		Image = "rbxasset://textures/ui/Controls/DesignSystem/DropShadow.png",
-		Position = dim_offset(-10, -8),
-		Size = dim_offset(cfg.size + 24, cfg.size + 16),
-		BorderSizePixel = 0,
-		SliceCenter = rect(vec2(21, 21), vec2(79, 79)),
-		ImageTransparency = 0.3,
-	})
-	library:apply_theme(radar_glow, "glow", "ImageColor3")
 	
 	local UIGradient2 = library:create("UIGradient", {
 		Parent = accent,
@@ -3590,23 +3557,6 @@ function library:section(options)
 		BackgroundColor3 = themes.preset.accent,
 	})
 	library:apply_theme(accent, "accent", "BackgroundColor3")
-
-	-- Добавляем glow эффект для верхней линии секции
-	local accent_glow = library:create("ImageLabel", {
-		Parent = background,
-		Name = "\0",
-		ImageColor3 = themes.preset.glow,
-		ScaleType = Enum.ScaleType.Slice,
-		BorderColor3 = rgb(0, 0, 0),
-		BackgroundTransparency = 1,
-		Image = "rbxasset://textures/ui/Controls/DesignSystem/DropShadow.png",
-		Position = dim2(0, -10, 0, -8),
-		Size = dim2(1, 20, 0, 16),
-		BorderSizePixel = 0,
-		SliceCenter = rect(vec2(21, 21), vec2(79, 79)),
-		ImageTransparency = 0.3,
-	})
-	library:apply_theme(accent_glow, "glow", "ImageColor3")
 
 	local UIGradient = library:create("UIGradient", {
 		Parent = accent,
@@ -5232,6 +5182,18 @@ function library:dropdown(options)
 	})
 	library:apply_theme(dropdown, "outline", "BackgroundColor3")
 
+	-- Верхняя акцентная линия для dropdown
+	local accent_line = library:create("Frame", {
+		Parent = dropdown,
+		Name = "accent_line",
+		Position = dim2(0, 0, 0, 0),
+		Size = dim2(1, 0, 0, 1),
+		BorderSizePixel = 0,
+		BackgroundColor3 = themes.preset.accent,
+		ZIndex = 10,
+	})
+	library:apply_theme(accent_line, "accent", "BackgroundColor3")
+
 	local inline = library:create("Frame", {
 		Parent = dropdown,
 		Name = "inline",
@@ -6125,6 +6087,18 @@ function library:button(options)
 	})
 
 	library:apply_theme(UIGradient, "contrast", "Color")
+
+	-- Верхняя акцентная линия
+	local accent_line = library:create("Frame", {
+		Parent = button,
+		Name = "accent_line",
+		Position = dim2(0, 0, 0, 0),
+		Size = dim2(1, 0, 0, 1),
+		BorderSizePixel = 0,
+		BackgroundColor3 = themes.preset.accent,
+		ZIndex = 10,
+	})
+	library:apply_theme(accent_line, "accent", "BackgroundColor3")
 
 	local text = library:create("TextLabel", {
 		Parent = contrast,
