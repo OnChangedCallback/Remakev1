@@ -1281,4 +1281,18 @@ function ESP_Library.cleanup_type(espType)
     
 end
 
+_G.ESP_Start = function()
+    if not _G.ESP_Running then
+        _G.ESP_Running = true
+        -- Инициализируем ESP
+        ESP_Library.init()
+    end
+end
+
+_G.ESP_Stop = function()
+    _G.ESP_Running = false
+    -- Очищаем все ESP объекты
+    ESP_Library.cleanup()
+end
+
 return ESP_Library
