@@ -1148,6 +1148,10 @@ end
 
 function Rendering.update_self_esp(player)
     if not player or player ~= vars.LocalPlayer or not _G.ESP_Config.SelfESP.Enable then
+        -- Скрываем SelfESP если выключен
+        if player == vars.LocalPlayer and I[player] then
+            Rendering.clear_esp(player)
+        end
         return
     end
     
@@ -1168,16 +1172,28 @@ function Rendering.update_self_esp(player)
         return
     end
     
+    -- Для SelfESP используем позицию персонажа относительно камеры
     local camera = vars.Camera
-    local screenPos, onScreen = camera:WorldToViewportPoint(rootPart.Position)
+    local cameraPos = camera.CFrame.Position
+    local characterPos = rootPart.Position
+    
+    -- Создаём виртуальную позицию для отрисовки (немного впереди камеры)
+    local forwardVector = camera.CFrame.LookVector
+    local virtualPos = cameraPos + forwardVector * 10 -- 10 studs впереди
+    local screenPos, onScreen = camera:WorldToViewportPoint(virtualPos)
+    
+    -- Всегда показываем SelfESP в центре экрана
+    local viewportSize = camera.ViewportSize
+    screenPos = vars.Vector2(viewportSize.X * 0.5, viewportSize.Y * 0.5)
+    onScreen = true
+    
     if not onScreen then
         Rendering.clear_esp(player)
         return
     end
     
-    local distance = (camera.CFrame.Position - rootPart.Position).Magnitude
-    local scale = math.max(0.1, 1000 / distance)
-    local boxSize = vars.Vector2(math.floor(scale * 4), math.floor(scale * 6))
+    -- Фиксированный размер для SelfESP
+    local boxSize = vars.Vector2(120, 180)
     local boxPos = vars.Vector2(math.floor(screenPos.X - boxSize.X / 2), math.floor(screenPos.Y - boxSize.Y / 2))
     
     local playerData = I[player]
@@ -1207,6 +1223,115 @@ function Rendering.update_self_esp(player)
             box.Filled.BackgroundColor3 = _G.ESP_Config.SelfESP.Box.Filled.Color
             box.Filled.Visible = true
         end
+    else
+        -- Скрываем box если выключен
+        if playerData.Box and playerData.Box.Full then
+            local box = playerData.Box.Full
+            if box.Square then box.Square.Visible = false end
+            if box.Outline then box.Outline.Visible = false end
+            if box.Filled then box.Filled.Visible = false end
+        end
+    end
+    
+    -- SelfESP Text
+    local textSpacing = _G.ESP_Config.Text.Spacing or 12
+    local centerX = boxPos.X + boxSize.X / 2
+    local topY = boxPos.Y - vars.GuiService:GetGuiInset().Y
+    local bottomY = topY + boxSize.Y
+    
+    if _G.ESP_Config.SelfESP.Text.Name.Enable and playerData.Text.Name then
+        playerData.Text.Name.Text = player.Name
+        playerData.Text.Name.TextColor3 = _G.ESP_Config.SelfESP.Text.Name.Color
+        playerData.Text.Name.Position = vars.UDim2(0, centerX, 0, topY - textSpacing)
+        playerData.Text.Name.AnchorPoint = vars.Vector2(0.5, 1)
+        playerData.Text.Name.Visible = true
+    elseif playerData.Text.Name then
+        playerData.Text.Name.Visible = false
+    end
+    
+    if _G.ESP_Config.SelfESP.Text.Distance.Enable and playerData.Text.Studs then
+        local distance = (cameraPos - characterPos).Magnitude
+        playerData.Text.Studs.Text = math.floor(distance) .. "m"
+        playerData.Text.Studs.TextColor3 = _G.ESP_Config.SelfESP.Text.Distance.Color
+        playerData.Text.Studs.Position = vars.UDim2(0, centerX, 0, bottomY + textSpacing)
+        playerData.Text.Studs.AnchorPoint = vars.Vector2(0.5, 0)
+        playerData.Text.Studs.Visible = true
+    elseif playerData.Text.Studs then
+        playerData.Text.Studs.Visible = false
+    end
+    
+    if _G.ESP_Config.SelfESP.Text.Tool.Enable and playerData.Text.Tool then
+        local tool = character:FindFirstChildOfClass("Tool")
+        playerData.Text.Tool.Text = tool and tool.Name or "None"
+        playerData.Text.Tool.TextColor3 = _G.ESP_Config.SelfESP.Text.Tool.Color
+        playerData.Text.Tool.Position = vars.UDim2(0, centerX, 0, bottomY + textSpacing * 2)
+        playerData.Text.Tool.AnchorPoint = vars.Vector2(0.5, 0)
+        playerData.Text.Tool.Visible = true
+    elseif playerData.Text.Tool then
+        playerData.Text.Tool.Visible = false
+    end
+    
+    if _G.ESP_Config.SelfESP.Text.State.Enable and playerData.Text.State then
+        local state = humanoid.PlatformStand and "Ragdoll" or (humanoid.Sit and "Sitting" or "Alive")
+        playerData.Text.State.Text = state
+        playerData.Text.State.TextColor3 = _G.ESP_Config.SelfESP.Text.State.Color
+        playerData.Text.State.Position = vars.UDim2(0, centerX, 0, bottomY + textSpacing * 3)
+        playerData.Text.State.AnchorPoint = vars.Vector2(0.5, 0)
+        playerData.Text.State.Visible = true
+    elseif playerData.Text.State then
+        playerData.Text.State.Visible = false
+    end
+    
+    -- SelfESP Health Bar
+    if _G.ESP_Config.SelfESP.Bars.Health.Enable and playerData.Bars.Health then
+        local health = humanoid.Health / humanoid.MaxHealth
+        local healthBar = playerData.Bars.Health
+        local barWidth = 4
+        local barHeight = boxSize.Y - 8
+        local barX = boxPos.X - 12
+        local barY = boxPos.Y + 4 - vars.GuiService:GetGuiInset().Y
+        
+        healthBar.Gui.Enabled = true
+        healthBar.Outline.Visible = true
+        healthBar.Outline.Position = vars.UDim2(0, barX - 1, 0, barY - 1)
+        healthBar.Outline.Size = vars.UDim2(0, barWidth + 2, 0, barHeight + 2)
+        
+        healthBar.Frame.Visible = true
+        healthBar.Frame.Position = vars.UDim2(0, 1, 0, (1 - health) * barHeight + 1)
+        healthBar.Frame.Size = vars.UDim2(0, barWidth, 0, health * barHeight)
+        
+        healthBar.Gradient.Color = vars.ColorSequence.new({
+            vars.ColorSequenceKeypoint.new(0, _G.ESP_Config.SelfESP.Bars.Health.Color1),
+            vars.ColorSequenceKeypoint.new(1, _G.ESP_Config.SelfESP.Bars.Health.Color2)
+        })
+    elseif playerData.Bars.Health then
+        playerData.Bars.Health.Gui.Enabled = false
+    end
+    
+    -- SelfESP Armor Bar
+    if _G.ESP_Config.SelfESP.Bars.Armor.Enable and playerData.Bars.Armor then
+        local armor = 0.8 -- Placeholder armor value
+        local armorBar = playerData.Bars.Armor
+        local barWidth = 4
+        local barHeight = boxSize.Y - 8
+        local barX = boxPos.X + boxSize.X + 8
+        local barY = boxPos.Y + 4 - vars.GuiService:GetGuiInset().Y
+        
+        armorBar.Gui.Enabled = true
+        armorBar.Outline.Visible = true
+        armorBar.Outline.Position = vars.UDim2(0, barX - 1, 0, barY - 1)
+        armorBar.Outline.Size = vars.UDim2(0, barWidth + 2, 0, barHeight + 2)
+        
+        armorBar.Frame.Visible = true
+        armorBar.Frame.Position = vars.UDim2(0, 1, 0, (1 - armor) * barHeight + 1)
+        armorBar.Frame.Size = vars.UDim2(0, barWidth, 0, armor * barHeight)
+        
+        armorBar.Gradient.Color = vars.ColorSequence.new({
+            vars.ColorSequenceKeypoint.new(0, _G.ESP_Config.SelfESP.Bars.Armor.Color1),
+            vars.ColorSequenceKeypoint.new(1, _G.ESP_Config.SelfESP.Bars.Armor.Color2)
+        })
+    elseif playerData.Bars.Armor then
+        playerData.Bars.Armor.Gui.Enabled = false
     end
 end
 
@@ -1304,9 +1429,8 @@ local function setup_player_esp(player)
 end
 
 local function setup_self_esp()
-    if _G.ESP_Config.SelfESP.Enable then
-        Rendering.render(vars.LocalPlayer)
-    end
+    -- Всегда создаём ESP объекты для локального игрока
+    Rendering.render(vars.LocalPlayer)
 end
 
 local function remove_player_esp(player)
