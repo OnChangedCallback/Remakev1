@@ -5189,10 +5189,10 @@ function library:dropdown(options)
 		Position = dim2(0, 1, 0, 0),
 		Size = dim2(1, -2, 0, 1),
 		BorderSizePixel = 0,
-		BackgroundColor3 = themes.preset.accent,
+		BackgroundColor3 = themes.preset.glow,
 		ZIndex = 10,
 	})
-	library:apply_theme(accent_line, "accent", "BackgroundColor3")
+	library:apply_theme(accent_line, "glow", "BackgroundColor3")
 
 	local inline = library:create("Frame", {
 		Parent = dropdown,
@@ -6095,10 +6095,10 @@ function library:button(options)
 		Position = dim2(0, 1, 0, 0),
 		Size = dim2(1, -2, 0, 1),
 		BorderSizePixel = 0,
-		BackgroundColor3 = themes.preset.accent,
+		BackgroundColor3 = themes.preset.glow,
 		ZIndex = 10,
 	})
-	library:apply_theme(accent_line, "accent", "BackgroundColor3")
+	library:apply_theme(accent_line, "glow", "BackgroundColor3")
 
 	local text = library:create("TextLabel", {
 		Parent = contrast,
