@@ -1284,15 +1284,25 @@ end
 _G.ESP_Start = function()
     if not _G.ESP_Running then
         _G.ESP_Running = true
+        print("[ESP] Starting ESP...")
         -- Инициализируем ESP
         ESP_Library.init()
+        print("[ESP] ESP Started successfully")
+    else
+        print("[ESP] ESP already running")
     end
 end
 
 _G.ESP_Stop = function()
-    _G.ESP_Running = false
-    -- Очищаем все ESP объекты
-    ESP_Library.cleanup()
+    if _G.ESP_Running then
+        _G.ESP_Running = false
+        print("[ESP] Stopping ESP...")
+        -- Очищаем все ESP объекты
+        ESP_Library.cleanup()
+        print("[ESP] ESP Stopped successfully")
+    else
+        print("[ESP] ESP not running")
+    end
 end
-print("loaded")
+
 return ESP_Library
