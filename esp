@@ -52,6 +52,10 @@ local vars = {
     min3 = Vector3.zero.Min,
     max3 = Vector3.zero.Max,
     
+    -- Font and Enum
+    Font = Font,
+    Enum = Enum,
+    
     -- Camera functions
     wtvp = workspace.CurrentCamera.WorldToViewportPoint,
     
@@ -61,9 +65,6 @@ local vars = {
     findFirstChild = workspace.FindFirstChild,
     findFirstChildOfClass = workspace.FindFirstChildOfClass,
     getChildren = workspace.GetChildren,
-    
-    -- Enums
-    Enum = Enum,
     ColorSequence = ColorSequence,
     ColorSequenceKeypoint = ColorSequenceKeypoint
 }
@@ -446,28 +447,74 @@ function Fonts.load_all_fonts()
         end
     end
 
+    -- Загружаем шрифты используя Font.fromId или Font.new
     for l, m in vars.pairs(font_sources) do
         local s = m[1]:match("([^%.]+)")
-        loaded_fonts[s] = Font.new(getcustomasset(m[2]), vars.Enum.FontWeight.Regular)
+        local success, font = pcall(function()
+            -- Пробуем создать Font объект
+            if vars.Font then
+                return vars.Font.new(getcustomasset(m[2]), vars.Enum.FontWeight.Regular)
+            else
+                -- Если Font недоступен, используем Enum.Font
+                return vars.Enum.Font[s] or vars.Enum.Font.SourceSans
+            end
+        end)
+        
+        if success then
+            loaded_fonts[s] = font
+        else
+            -- Если не удалось загрузить, используем дефолтный
+            loaded_fonts[s] = vars.Enum.Font.SourceSans
+        end
+    end
+    
+    -- Убедимся что ProggyClean загружен
+    if not loaded_fonts["ProggyClean"] then
+        loaded_fonts["ProggyClean"] = vars.Enum.Font.Code or vars.Enum.Font.SourceSans
     end
 end
 
 function Fonts.get_font(font_name)
-    return loaded_fonts[font_name] or loaded_fonts["ProggyClean"]
+    -- Проверяем загруженные шрифты
+    local font = loaded_fonts[font_name]
+    if font then
+        return font
+    end
+    
+    -- Пробуем найти в Enum.Font
+    if vars.Enum and vars.Enum.Font then
+        local enum_font = vars.Enum.Font[font_name]
+        if enum_font then
+            return enum_font
+        end
+    end
+    
+    -- Возвращаем дефолтный
+    return loaded_fonts["ProggyClean"] or vars.Enum.Font.Code or vars.Enum.Font.SourceSans
 end
 
 function Fonts.get_text_style(text_type)
-    local config_text = _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text[text_type] or {}
-    -- Используем индивидуальный шрифт для каждого текстового элемента
-    local font_name = config_text.Font or "ProggyClean"
-    local tuning = Fonts.get_font_tuning(font_name)
-
+    -- Получаем настройки из конфига для конкретного типа текста
+    local font_name = "TahomaBold" -- дефолтный шрифт (синхронизирован с UI)
+    local text_size = 13
+    local text_color = vars.Color3(255, 255, 255)
+    
+    -- Проверяем конфиг для каждого типа текста
+    if _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text[text_type] then
+        local config = _G.ESP_Config.Text[text_type]
+        font_name = config.Font or font_name
+        text_size = config.Size or text_size
+        text_color = config.Color or text_color
+    end
+    
+    -- Возвращаем стиль текста с Font объектом
     return {
         fontName = font_name,
-        size = config_text.Size or tuning.size,
-        stroke_t = config_text.StrokeTransparency ~= nil and config_text.StrokeTransparency or tuning.stroke_t,
-        stroke_c = config_text.StrokeColor or tuning.stroke_c,
-        text_c = config_text.Color or vars.Color3(255, 255, 255)
+        font = Fonts.get_font(font_name),
+        size = text_size,
+        text_c = text_color,
+        stroke_c = vars.Color3(0, 0, 0),
+        stroke_t = 0
     }
 end
 
@@ -488,7 +535,34 @@ function Rendering.make_text(parent, text_type)
     R.TextStrokeColor3 = U.stroke_c
     R.TextStrokeTransparency = U.stroke_t
     R.TextSize = U.size
-    R.FontFace = Fonts.get_font(U.fontName)
+    
+    -- Применяем шрифт
+    if U.font then
+        -- Проверяем тип шрифта и применяем соответствующим образом
+        local font_type = type(U.font)
+        if font_type == "userdata" then
+            -- Если это Font объект, используем FontFace
+            local success = pcall(function()
+                R.FontFace = U.font
+            end)
+            
+            if not success then
+                -- Если FontFace не работает, пробуем Font
+                pcall(function()
+                    R.Font = U.font
+                end)
+            end
+        elseif font_type == "string" then
+            -- Если это строка, устанавливаем как Font enum
+            pcall(function()
+                R.Font = vars.Enum.Font[U.font] or vars.Enum.Font.SourceSans
+            end)
+        end
+    else
+        -- Дефолтный шрифт
+        R.Font = vars.Enum.Font.Code or vars.Enum.Font.SourceSans
+    end
+    
     return R
 end
 
@@ -969,9 +1043,32 @@ function Rendering.update(player)
                         -- Обновляем tune каждый кадр для подхвата изменений шрифтов
                         local style = Fonts.get_text_style(bB.key)
                         bC.Visible = true
+                        
+                        -- Применяем шрифт
                         if style.font then
-                            bC.FontFace = style.font
+                            local font_type = type(style.font)
+                            if font_type == "userdata" then
+                                -- Font объект
+                                local success = pcall(function()
+                                    bC.FontFace = style.font
+                                end)
+                                
+                                if not success then
+                                    pcall(function()
+                                        bC.Font = style.font
+                                    end)
+                                end
+                            elseif font_type == "string" then
+                                -- Строка с именем шрифта
+                                pcall(function()
+                                    bC.Font = vars.Enum.Font[style.font] or vars.Enum.Font.SourceSans
+                                end)
+                            end
+                        else
+                            -- Дефолтный шрифт
+                            bC.Font = vars.Enum.Font.Code or vars.Enum.Font.SourceSans
                         end
+                        
                         bC.TextSize = style.size
                         bC.TextColor3 = style.text_c
                         bC.TextStrokeColor3 = style.stroke_c
