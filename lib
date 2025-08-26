@@ -64,7 +64,7 @@ local concat = table.concat
 
 -- library init
 local library = {
-	directory = "Rebuild.gg",
+	directory = "luasex",
 	folders = {
 		"/fonts",
 		"/configs",
@@ -784,7 +784,7 @@ function library:load_assets()
             local ok, res = pcall(req, {
                 Url = url,
                 Method = "GET",
-                Headers = {['User-Agent'] = "Rebuild.gg"},
+                Headers = {['User-Agent'] = "luasex"},
                 Timeout = timeout_s,
             })
             if ok and res and tonumber(res.StatusCode) == 200 and res.Body then
@@ -1121,7 +1121,7 @@ function library:load_sounds()
             local ok, res = pcall(req, {
                 Url = url,
                 Method = "GET",
-                Headers = {['User-Agent'] = "Rebuild.gg"},
+                Headers = {['User-Agent'] = "luasex"},
                 Timeout = timeout_s,
             })
             if ok and res and tonumber(res.StatusCode) == 200 and res.Body then
@@ -1178,7 +1178,7 @@ function library:load_sounds()
                 local ok, res = pcall(req, {
                     Url = url,
                     Method = "GET",
-                    Headers = {['User-Agent'] = "Rebuild.gg"},
+                    Headers = {['User-Agent'] = "luasex"},
                     Timeout = 15,
                 })
                 if ok and res and tonumber(res.StatusCode) == 200 and res.Body then
