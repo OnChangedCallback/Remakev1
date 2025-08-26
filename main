@@ -1,264 +1,966 @@
-local library =
-	loadstring(game:HttpGet("https://raw.githubusercontent.com/OnChangedCallback/Remakev1/refs/heads/main/lib"))()
-local flags = library.flags -- access flags from here.
-
--- Переменные
-vars = {
-	lp = game.Players.LocalPlayer,
-	HttpService = game:GetService("HttpService"),
-	dir = (library and (library.directory .. "/configs/")) or "configs/"
+print("load started")
+local vars = {
+    -- Services
+    Players = game:GetService("Players"),
+    RunService = game:GetService("RunService"),
+    UserInputService = game:GetService("UserInputService"),
+    TweenService = game:GetService("TweenService"),
+    Workspace = game:GetService("Workspace"),
+    HttpService = game:GetService("HttpService"),
+    TeleportService = game:GetService("TeleportService"),
+    MarketplaceService = game:GetService("MarketplaceService"),
+    
+    -- Player
+    LocalPlayer = game:GetService("Players").LocalPlayer,
+    
+    -- Math
+    Vector2new = Vector2.new,
+    Vector3new = Vector3.new,
+    CFramenew = CFrame.new,
+    Color3new = Color3.new,
+    Color3Hex = Color3.fromHex,
+    dim2 = UDim2.new,
+    ColorSeq = ColorSequence.new,
+    ColorSeqKey = ColorSequenceKeypoint.new,
+    
+    -- Other
+    Drawing = Drawing.new,
+    random = math.random,
+    task_wait = task.wait,
+    math_min = math.min,
+    str_find = string.find
 }
 
--- Добавляем table.find если его нет
-if not table.find then
-	table.find = function(tbl, value)
-		for i, v in pairs(tbl) do
-			if v == value then
-				return i
-			end
-		end
-		return nil
-	end
+-- Загрузка библиотеки
+local library, dim2, hex, rgbseq, rgbkey, themes, flags, random, lp = loadstring(game:HttpGet("https://raw.githubusercontent.com/OnChangedCallback/Remakev1/refs/heads/main/lib"))()
+print("uiloaded")
+-- Загрузка ESP библиотеки
+loadstring(game:HttpGet("https://raw.githubusercontent.com/OnChangedCallback/Remakev1/refs/heads/main/esp"))()
+print("esploaded")
+-- Создание окна
+local window = library:window({
+    name = "luasex",
+    size = vars.dim2(0, 780, 0, 639)
+})
+
+-- Создание вкладок
+local RageTab = window:tab({ name = "Rage", enabled = true })
+local EspTab = window:tab({ name = "Esp", enabled = true })
+local VisualsTab = window:tab({ name = "Visuals", enabled = true })
+local ConfigTab = window:tab({ name = "Config", enabled = true })
+
+-- Глобальные переменные для HUD элементов
+local watermark = library:watermark({
+    text = "Rebuild.gg - " .. os.date("%H:%M:%S")
+})
+
+local radar = library:radar({
+    enabled = false,
+    size = 200
+})
+
+-- Переменная для хранения dropdown конфигов
+local config_holder = nil
+local default_config = nil
+local game_name_cache = nil
+
+-- Утилити функции
+local utility = {}
+
+do
+    -- Функция для обновления текста watermark
+    utility.update_watermark_text = function()
+        local watermark_type = flags["watermark_type"]
+        local parts = {}
+        
+        local get_game_name = function()
+            if game_name_cache ~= nil then
+                return game_name_cache
+            end
+            local success, info = pcall(function()
+                return vars.MarketplaceService:GetProductInfo(game.PlaceId)
+            end)
+            local name = success and info and info.Name or tostring(game.PlaceId)
+            game_name_cache = name
+            return name
+        end
+        
+        if type(watermark_type) == "table" then
+            local selected = {}
+            for _, option in next, watermark_type do
+                selected[option] = true
+            end
+            
+            if selected["Date"] then
+                parts[#parts + 1] = os.date("%y:%m:%d")
+            end
+            if selected["Time"] then
+                parts[#parts + 1] = os.date("%H:%M:%S")
+            end
+            if selected["Place"] then
+                parts[#parts + 1] = get_game_name()
+            end
+            if selected["User"] then
+                parts[#parts + 1] = vars.LocalPlayer and vars.LocalPlayer.Name or "?"
+            end
+        end
+        
+        if #parts == 0 then
+            parts[1] = os.date("%H:%M:%S")
+        end
+        
+        return "Rebuild.gg - " .. table.concat(parts, " - ")
+    end
+    
+    -- Глобальная функция для загрузки конфига
+    getgenv().load_config = function(config_name)
+        library:load_config(readfile(library.directory .. "/configs/" .. config_name .. ".cfg"))
+    end
 end
 
--- Утилити библиотека (глобальная)
-do -- Utilities
-    utility = utility or {}
-
-    function utility.ensure_config_directory()
-        if not isfolder(library.directory) then
-            makefolder(library.directory)
+-- Config Tab содержимое
+do
+    local config_column = ConfigTab:column()
+    local config_section = config_column:section({name = "Options"})
+    
+    -- Сохраняем дефолтный конфиг
+    default_config = library:get_config()
+    
+    -- Список конфигов
+    config_holder = config_section:list({flag = "config_name_list"})
+    
+    -- Текстбокс для имени конфига
+    config_section:textbox({
+        flag = "config_name_text_box",
+        placeholder = "Config name"
+    })
+    
+    -- Кнопки управления конфигами
+    config_section:button_holder({})
+    
+    config_section:button({
+        name = "Create",
+        callback = function()
+            local config_name = flags["config_name_text_box"]
+            if config_name and config_name ~= "" then
+                writefile(library.directory .. "/configs/" .. config_name .. ".cfg", library:get_config())
+                library:config_list_update()
+                library:notification({text = "Created config: " .. config_name, time = 3})
+            else
+                library:notification({text = "Enter config name first!", time = 3})
+            end
         end
-        if not isfolder(vars.dir) then
-            makefolder(vars.dir)
+    })
+    
+    config_section:button({
+        name = "Delete",
+        callback = function()
+            local selected_config = flags["config_name_list"]
+            if selected_config and selected_config ~= "" then
+                delfile(library.directory .. "/configs/" .. selected_config .. ".cfg")
+                library:config_list_update()
+                library:notification({text = "Deleted config: " .. selected_config, time = 3})
+            else
+                library:notification({text = "Select a config first!", time = 3})
+            end
         end
-    end
-
-    function utility.get_config_list()
-        utility.ensure_config_directory()
-        local configs = {}
-        for _, file in pairs(listfiles(vars.dir)) do
-            if file:sub(-4) == ".cfg" then
-                local name = file:match("([^/\\]+)%.cfg$")
-                if name then
-                    table.insert(configs, name)
+    })
+    
+    config_section:button_holder({})
+    
+    config_section:button({
+        name = "Load",
+        callback = function()
+            local selected_config = flags["config_name_list"]
+            if selected_config and selected_config ~= "" then
+                library:load_config(readfile(library.directory .. "/configs/" .. selected_config .. ".cfg"))
+                library:notification({text = "Loaded config: " .. selected_config, time = 3})
+            else
+                library:notification({text = "Select a config first!", time = 3})
+            end
+        end
+    })
+    
+    config_section:button({
+        name = "Save",
+        callback = function()
+            local selected_config = flags["config_name_list"]
+            if selected_config and selected_config ~= "" then
+                writefile(library.directory .. "/configs/" .. selected_config .. ".cfg", library:get_config())
+                library:config_list_update()
+                library:notification({text = "Saved config: " .. selected_config, time = 3})
+            else
+                library:notification({text = "Select a config first!", time = 3})
+            end
+        end
+    })
+    
+    config_section:button_holder({})
+    
+    config_section:button({
+        name = "Refresh Configs",
+        callback = function()
+            library:config_list_update()
+            library:notification({text = "Refreshed config list", time = 2})
+        end
+    })
+    
+    config_section:button_holder({})
+    
+    config_section:button({
+        name = "Reset to Default",
+        callback = function()
+            library:load_config(default_config)
+            library:notification({text = "Reset to default config", time = 3})
+        end
+    })
+    
+    config_section:button({
+        name = "Unload Menu",
+        callback = function()
+            library:load_config(default_config)
+            for _, gui in pairs(library.guis) do
+                gui:Destroy()
+            end
+            for _, connection in pairs(library.connections) do
+                connection:Disconnect()
+            end
+        end
+    })
+    
+    -- Мульти-секция для Theme, Game, HUD
+    local theme_section, game_section, hud_section = ConfigTab:column():multi_section({
+        names = {"Theme", "Game", "HUD"}
+    })
+    
+    -- Theme секция
+    theme_section:label({name = "Accent"}):colorpicker({
+        name = "Accent",
+        color = vars.Color3new(139/255, 92/255, 246/255), -- #8B5CF6
+        flag = "theme_accent",
+        callback = function(color, transparency)
+            library:update_theme("accent", color)
+        end
+    })
+    
+    local contrast_label = theme_section:label({name = "Contrast"})
+    contrast_label:colorpicker({
+        name = "Low",
+        color = vars.Color3new(30/255, 30/255, 30/255), -- #1E1E1E
+        flag = "theme_low",
+        callback = function(color)
+            if flags["theme_high"] and flags["theme_low"] then
+                library:update_theme("contrast", vars.ColorSeq({
+                    vars.ColorSeqKey(0, flags["theme_low"].Color),
+                    vars.ColorSeqKey(1, flags["theme_high"].Color)
+                }))
+            end
+        end
+    })
+    contrast_label:colorpicker({
+        name = "High",
+        color = vars.Color3new(45/255, 45/255, 45/255), -- #2D2D2D
+        flag = "theme_high",
+        callback = function(color)
+            if flags["theme_high"] and flags["theme_low"] then
+                library:update_theme("contrast", vars.ColorSeq({
+                    vars.ColorSeqKey(0, flags["theme_low"].Color),
+                    vars.ColorSeqKey(1, flags["theme_high"].Color)
+                }))
+            end
+        end
+    })
+    
+    local inline_label = theme_section:label({name = "Inline"})
+    inline_label:colorpicker({
+        name = "Inline",
+        color = vars.Color3new(60/255, 60/255, 60/255), -- #3C3C3C
+        flag = "theme_inline",
+        callback = function(color, transparency)
+            library:update_theme("inline", color)
+        end
+    })
+    inline_label:colorpicker({
+        name = "Outline",
+        color = vars.Color3new(0, 0, 0), -- #000000
+        flag = "theme_outline",
+        callback = function(color, transparency)
+            library:update_theme("outline", color)
+        end
+    })
+    
+    local text_label = theme_section:label({name = "TextColor"})
+    text_label:colorpicker({
+        name = "Main",
+        color = vars.Color3new(1, 1, 1), -- #FFFFFF
+        flag = "theme_text",
+        callback = function(color, transparency)
+            library:update_theme("text", color)
+        end
+    })
+    text_label:colorpicker({
+        name = "Outline",
+        color = vars.Color3new(0, 0, 0), -- #000000
+        flag = "theme_text_outline",
+        callback = function(color, transparency)
+            library:update_theme("text_outline", color)
+        end
+    })
+    
+    theme_section:label({name = "Glow"}):colorpicker({
+        name = "Glow",
+        color = vars.Color3new(139/255, 92/255, 246/255), -- #8B5CF6
+        flag = "theme_glow",
+        callback = function(color, transparency)
+            library:update_theme("glow", color)
+        end
+    })
+    
+    -- HUD секция
+    hud_section:label({name = "UI Bind"}):keybind({
+        key = Enum.KeyCode.Insert,
+        flag = "ui_bind",
+        callback = function(key)
+            window.visible = not window.visible
+        end
+    })
+    
+    hud_section:toggle({
+        name = "Keybind List",
+        flag = "keybind_list",
+        callback = function(enabled)
+            if library.keybind_list_frame then
+                library.keybind_list_frame.Visible = enabled
+            end
+        end
+    })
+    
+    local watermark_toggle = hud_section:toggle({
+        name = "Watermark",
+        flag = "watermark",
+        callback = function(enabled)
+            watermark.set_visible(enabled)
+            if enabled then
+                watermark.change_text(utility.update_watermark_text())
+            end
+        end
+    })
+    
+    hud_section:dropdown({
+        name = "Watermark Type",
+        flag = "watermark_type",
+        items = {"Time", "Date", "Place", "User"},
+        multi = true,
+        default = {"Time"},
+        callback = function(selected)
+            watermark.change_text(utility.update_watermark_text())
+        end
+    })
+    
+    local radar_toggle = hud_section:toggle({
+        name = "Radar",
+        flag = "hud_radar",
+        callback = function(enabled)
+            radar.set_visible(enabled)
+            if enabled then
+                -- Добавляем всех игроков при включении радара
+                for _, player in ipairs(vars.Players:GetPlayers()) do
+                    if player ~= vars.LocalPlayer and radar and radar.add_dot then
+                        radar.add_dot(player)
+                    end
                 end
             end
         end
-        return configs
-    end
-end
-
-local window = library:window({
-	name = "rat.lua",
-	size = UDim2.fromOffset(700, 650),
-})
-local rage = window:tab({ name = "rage" })
-local esp = window:tab({ name = "esp" })
-local visuals = window:tab({ name = "visuals" })
-local misc = window:tab({ name = "misc" })
-
-do -- Configs
-	local configs = window:tab({ name = "configs" })
-	local config = configs:section({ name = "Theming System", side = "right" })
-	config:toggle({
-		name = "KeybindList",
-		flag = "keybind_list",
-		default = false,
-		callback = function(bool)
-			window.toggle_list(bool)
-		end,
-	})
-	config:toggle({
-		name = "PlayerList",
-		flag = "player_list",
-		default = false,
-		callback = function(bool)
-			window.toggle_playerlist(bool)
-		end,
-	})
-	config:toggle({
-		name = "Watermark",
-		flag = "watermark",
-		default = false,
-		callback = function(bool)
-			window.toggle_watermark(bool)
-		end,
-	})
-	config:keybind({
-		name = "UI Bind",
-		default = Enum.KeyCode.End,
-		display = "menu",
-		callback = window.set_menu_visibility,
-	})
-	config:slider({
-		name = "Colorpicker Animation Speed",
-		flag = "color_picker_anim_speed",
-		min = 0,
-		max = 5,
-		default = 2,
-		interval = 0.01,
-		suffix = "",
-	})
-	config:colorpicker({
-		color = Color3.fromHex("#000000"),
-		flag = "accent",
-		callback = function(color)
-			library:update_theme("accent", color)
-		end,
-	})
-	config:button({
-		name = "Copy JobId",
-		callback = function()
-			setclipboard(game.JobId)
-		end,
-	})
-	config:button({
-		name = "Copy GameID",
-		callback = function()
-			setclipboard(game.GameId)
-		end,
-	})
-	config:button({
-		name = "Copy Join Script",
-		callback = function()
-			setclipboard(
-				'game:GetService("TeleportService"):TeleportToPlaceInstance('
-					.. game.PlaceId
-					.. ', "'
-					.. game.JobId
-					.. '", game.Players.LocalPlayer)'
-			)
-		end,
-	})
-	config:button({
-		name = "Rejoin",
-		callback = function()
-			game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, vars.lp)
-		end,
-	})
-
-	local configs_section = configs:section({ name = "Configuration System", side = "left" })
-
-	-- Локальная утилита пересоздания dropdown (без refresh метода)
-    local function create_config_dropdown(selected)
-        if library.config_holder and type(library.config_holder.remove) == "function" then
-            library.config_holder:remove()
+    })
+    
+    hud_section:slider({
+        name = "Radar Zoom",
+        flag = "radar_zoom",
+        min = 0.1,
+        max = 2,
+        default = 1,
+        interval = 0.1,
+        callback = function(value)
+            radar.set_zoom(value)
         end
-        local items = utility.get_config_list()
-        library.config_holder = configs_section:dropdown({
-            name = "Configs",
-            items = items,
-            flag = "config_name_list",
-            multi = false
-        })
-        if selected and table.find(items, selected) then
-            library.config_holder:set(selected)
-        elseif #items > 0 then
-            library.config_holder:set(items[1])
+    })
+    
+    -- Game секция
+    game_section:button_holder({})
+    
+    game_section:button({
+        name = "Copy JobId",
+        callback = function()
+            setclipboard(game.JobId)
+            library:notification({text = "Copied JobId to clipboard", time = 2})
+        end
+    })
+    
+    game_section:button({
+        name = "Copy GameID",
+        callback = function()
+            setclipboard(tostring(game.GameId))
+            library:notification({text = "Copied GameId to clipboard", time = 2})
+        end
+    })
+    
+    game_section:button_holder({})
+    
+    game_section:button({
+        name = "Copy Join Script",
+        callback = function()
+            setclipboard(
+                'game:GetService("TeleportService"):TeleportToPlaceInstance(' ..
+                game.PlaceId .. ', "' .. game.JobId .. '", game.Players.LocalPlayer)'
+            )
+            library:notification({text = "Copied join script to clipboard", time = 2})
+        end
+    })
+    
+    game_section:button_holder({})
+    
+    game_section:button({
+        name = "Rejoin",
+        callback = function()
+            vars.TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, vars.LocalPlayer)
+        end
+    })
+    
+    game_section:button_holder({})
+    
+    game_section:button({
+        name = "Join New Server",
+        callback = function()
+            local url = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
+
+            local fetch_servers
+            fetch_servers = function(attempts)
+                attempts = attempts or 5
+                local delay = 1
+                for i = 1, attempts do
+                    local ok, body = pcall(function()
+                        return game:HttpGetAsync(url)
+                    end)
+                    if ok then
+                        local ok2, decoded = pcall(function()
+                            return vars.HttpService:JSONDecode(body)
+                        end)
+                        if ok2 then
+                            return decoded
+                        else
+                            library:notification({text = "Server list decode failed", time = 2})
+                            return nil
+                        end
+                    else
+                        local msg = tostring(body)
+                        if vars.str_find(msg, "429") or vars.str_find(msg, "Too Many Requests") then
+                            vars.task_wait(delay + (vars.random(0, 250) / 1000))
+                            delay = vars.math_min(delay * 2, 8)
+                        else
+                            library:notification({text = "HTTP error: " .. msg, time = 2})
+                            return nil
+                        end
+                    end
+                end
+                return nil
+            end
+
+            local servers = fetch_servers()
+            if not servers or not servers.data or #servers.data == 0 then
+                library:notification({text = "Сервера недоступны или пустой список", time = 2})
+                return
+            end
+
+            local candidates = {}
+            for _, s in ipairs(servers.data) do
+                if s.id ~= game.JobId and s.playing < s.maxPlayers and s.playing <= (flags["max_players"] or 15) then
+                    table.insert(candidates, s)
+                end
+            end
+
+            if #candidates == 0 then
+                library:notification({text = "Свободных серверов не найдено", time = 2})
+                return
+            end
+
+            local target = candidates[vars.random(1, #candidates)]
+            vars.TeleportService:TeleportToPlaceInstance(game.PlaceId, target.id, vars.LocalPlayer)
+        end
+    })
+    
+    game_section:slider({
+        name = "Max Players",
+        flag = "max_players",
+        min = 0,
+        max = 40,
+        default = 15,
+        interval = 1
+    })
+end
+
+-- Radar система
+do
+    local add_player_to_radar = function(player)
+        if player ~= vars.LocalPlayer and radar and radar.add_dot then
+            print("Adding player to radar:", player.Name) -- Debug
+            radar.add_dot(player)
         end
     end
-
-	-- Функция обновления списка конфигов через пересоздание dropdown
-    function library:config_list_update()
-        local current_value = flags["config_name_list"]
-        create_config_dropdown(current_value)
+    
+    -- Подключаем события
+    table.insert(library.connections, vars.Players.PlayerAdded:Connect(add_player_to_radar))
+    
+    table.insert(library.connections, vars.Players.PlayerRemoving:Connect(function(player)
+        if radar and radar.remove_dot then
+            print("Removing player from radar:", player.Name) -- Debug
+            radar.remove_dot(player)
+        end
+    end))
+    
+    -- Обновление позиций на радаре
+    local radar_connection = nil
+    
+    local update_radar_positions = function()
+        if radar and radar.update_dot then
+            for _, player in ipairs(vars.Players:GetPlayers()) do
+                if player ~= vars.LocalPlayer then
+                    local character = player.Character
+                    local root = character and character:FindFirstChild("HumanoidRootPart")
+                    if root then
+                        radar.update_dot(player, root.Position)
+                    end
+                end
+            end
+        end
     end
-
-	-- Создаем dropdown первый раз
-    create_config_dropdown(flags["config_name_list"]) 
-	configs_section:textbox({ flag = "config_name_text_box" })
-	configs_section:button({
-		name = "Create",
-		callback = function()
-			local config_name = flags["config_name_text_box"]
-			if config_name and config_name ~= "" then
-				utility.ensure_config_directory()
-				local config_data = library:get_config()
-				writefile(vars.dir .. config_name .. ".cfg", config_data)
-				library:config_list_update()
-				library:notification({ text = "Config '" .. config_name .. "' created!" })
-			else
-				library:notification({ text = "Please enter a config name!" })
-			end
-		end,
-	})
-	configs_section:button({
-		name = "Delete",
-		callback = function()
-			if flags["config_name_list"] and flags["config_name_list"] ~= "" then
-				library:panel({
-					name = "Are you sure you want to delete " .. flags["config_name_list"] .. " ?",
-					options = { "Yes", "No" },
-					callback = function(option)
-						if option == "Yes" then
-							local config_name = flags["config_name_list"]
-							local file_path = vars.dir .. config_name .. ".cfg"
-							if isfile(file_path) then
-								delfile(file_path)
-								library:config_list_update()
-								library:notification({
-									text = "Config '" .. config_name .. "' deleted!",
-								})
-							else
-								library:notification({ text = "Config file not found!" })
-							end
-						end
-					end,
-				})
-			end
-		end,
-	})
-	configs_section:button({
-		name = "Load",
-		callback = function()
-			local config_name = flags["config_name_list"]
-			if config_name and config_name ~= "" then
-				local file_path = vars.dir .. config_name .. ".cfg"
-				if isfile(file_path) then
-					local config_data = readfile(file_path)
-					library:load_config(config_data)
-					library:notification({ text = "Config '" .. config_name .. "' loaded!" })
-				else
-					library:notification({ text = "Config file not found!" })
-				end
-			else
-				library:notification({ text = "Please select a config!" })
-			end
-		end,
-	})
-	configs_section:button({
-		name = "Save",
-		callback = function()
-			local config_name = flags["config_name_list"]
-			if config_name and config_name ~= "" then
-				utility.ensure_config_directory()
-				local config_data = library:get_config()
-				writefile(vars.dir .. config_name .. ".cfg", config_data)
-				library:notification({ text = "Config '" .. config_name .. "' saved!" })
-			else
-				library:notification({ text = "Please select a config!" })
-			end
-		end,
-	})
-	configs_section:button({
-		name = "Refresh List",
-		callback = function()
-			library:config_list_update()
-			library:notification({ text = "Config list refreshed!" })
-		end,
-	})
-	configs_section:button({
-		name = "Unload Menu",
-		callback = function()
-			library:unload()
-		end,
-	})
+    
+    -- Запускаем обновление позиций сразу
+    radar_connection = vars.RunService.RenderStepped:Connect(update_radar_positions)
+    table.insert(library.connections, radar_connection)
 end
 
-
-
-for i = 1, 15 do
-	library:notification({ text = "when randomly onyx hub😁" })
+-- Обновление watermark каждую секунду
+do
+    task.spawn(function()
+        while task.wait(1) do
+            if flags["watermark"] then
+                watermark.change_text(utility.update_watermark_text())
+            end
+        end
+    end)
 end
 
+-- ESP Tab содержимое
+do
+    -- Создаем колонки для ESP вкладки
+    local esp_column1 = EspTab:column()
+    local esp_column2 = EspTab:column()
+    local esp_column3 = EspTab:column()
+    
+    -- Main ESP Toggle
+    local main_section = esp_column1:section({name = "Main ESP"})
+    
+    main_section:toggle({
+        name = "Enable ESP",
+        flag = "esp_enable",
+        default = false,
+        callback = function(enabled)
+            if enabled then
+                _G.ESP_Start()
+            else
+                _G.ESP_Stop()
+            end
+        end
+    })
+    
+    main_section:slider({
+        name = "Text Spacing",
+        flag = "text_spacing",
+        min = 5,
+        max = 25,
+        default = 12,
+        interval = 1,
+        callback = function(value)
+            _G.ESP_Config.Text.Spacing = value
+        end
+    })
+    
+    -- Boxes секция
+    local boxes_section = esp_column1:section({name = "Boxes"})
+    
+    -- Enabled тогл с колорпикером
+    local box_enabled_toggle = boxes_section:toggle({
+        name = "Enabled",
+        flag = "box_enable",
+        callback = function(enabled)
+            _G.ESP_Config.Box.Enable = enabled
+        end
+    })
+    box_enabled_toggle:colorpicker({
+        name = "Box Color",
+        color = vars.Color3new(1, 1, 1),
+        flag = "box_color",
+        callback = function(color, transparency)
+            _G.ESP_Config.Box.Color = color
+        end
+    })
+    
+    -- Filled тогл с колорпикером заливки
+    local box_filled_toggle = boxes_section:toggle({
+        name = "Filled",
+        flag = "box_fill",
+        callback = function(enabled)
+            _G.ESP_Config.Box.Filled.Enable = enabled
+        end
+    })
+    box_filled_toggle:colorpicker({
+        name = "Fill Color",
+        color = vars.Color3new(1, 1, 1),
+        flag = "box_fill_color",
+        callback = function(color, transparency)
+            _G.ESP_Config.Box.Filled.Color = color
+            _G.ESP_Config.Box.Filled.Transparency = transparency or 0.5
+        end
+    })
+    
+    -- Прозрачность заливки (dependency)
+    boxes_section:slider({
+        name = "Fill Transparency",
+        flag = "box_fill_transparency",
+        min = 0,
+        max = 1,
+        default = 0.5,
+        interval = 0.05,
+        dependency = "box_fill",
+        callback = function(value)
+            _G.ESP_Config.Box.Filled.Transparency = value
+        end
+    })
+    
+    -- Gradient тогл с двумя колорпикерами
+    local box_gradient_toggle = boxes_section:toggle({
+        name = "Gradient",
+        flag = "box_gradient",
+        callback = function(enabled)
+            _G.ESP_Config.Box.Filled.Gradient.Enable = enabled
+        end
+    })
+    box_gradient_toggle:colorpicker({
+        name = "Start",
+        color = vars.Color3new(1, 1, 1),
+        flag = "box_gradient_start",
+        callback = function(color)
+            _G.ESP_Config.Box.Filled.Gradient.Color.Start = color
+        end
+    })
+    box_gradient_toggle:colorpicker({
+        name = "End",
+        color = vars.Color3new(0, 0, 1),
+        flag = "box_gradient_end",
+        callback = function(color)
+            _G.ESP_Config.Box.Filled.Gradient.Color.End = color
+        end
+    })
+    
+    -- Rotating тогл с слайдером скорости (dependency)
+    boxes_section:toggle({
+        name = "Rotating",
+        flag = "box_gradient_rotating",
+        dependency = "box_gradient",
+        callback = function(enabled)
+            _G.ESP_Config.Box.Filled.Gradient.Rotating.Enable = enabled
+        end
+    })
+    
+    boxes_section:slider({
+        name = "Rotating Speed",
+        flag = "box_gradient_rotating_speed",
+        min = 0.1,
+        max = 5.0,
+        default = 1.0,
+        interval = 0.1,
+        dependency = "box_gradient_rotating",
+        callback = function(value)
+            _G.ESP_Config.Box.Filled.Gradient.Rotating.Speed = value
+        end
+    })
+    
+    -- Глобально отключаем teamcheck для Name
+    _G.ESP_Config.Text.Name.Teamcheck = false
+    
+    -- Новая колонка для текстов: 4 отдельные секции с одинаковыми контролами
+    -- Name
+    local name_section = esp_column3:section({name = "Name"})
+    local name_toggle = name_section:toggle({
+        name = "Enabled",
+        flag = "text_name_enable",
+        callback = function(enabled)
+            _G.ESP_Config.Text.Name.Enable = enabled
+            _G.ESP_Config.Text.Name.Size = 13
+            _G.ESP_Config.Text.Name.Font = "TahomaBold"
+            if _G.ESP_Config.Text.Name.Teamcheck ~= nil then
+                _G.ESP_Config.Text.Name.Teamcheck = false
+            end
+        end
+    })
+    name_toggle:colorpicker({
+        name = "Text Color",
+        color = vars.Color3new(1, 1, 1),
+        flag = "text_name_color",
+        callback = function(color)
+            _G.ESP_Config.Text.Name.Color = color
+        end
+    })
+    name_section:dropdown({
+        name = "Side",
+        flag = "text_name_side",
+        items = {"Top", "Bot"},
+        default = "Top",
+        dependency = "text_name_enable",
+        callback = function(selected)
+            _G.ESP_Config.Text.Name.Side = selected
+        end
+    })
+    -- Фиксированный размер для Name = 13, шрифт TahomaBold
+
+    -- Distance
+    local distance_section = esp_column3:section({name = "Distance"})
+    local distance_toggle = distance_section:toggle({
+        name = "Enabled",
+        flag = "text_studs_enable",
+        callback = function(enabled)
+            _G.ESP_Config.Text.Studs.Enable = enabled
+            _G.ESP_Config.Text.Studs.Size = 12
+            _G.ESP_Config.Text.Studs.Font = "TahomaBold"
+        end
+    })
+    distance_toggle:colorpicker({
+        name = "Text Color",
+        color = vars.Color3new(1, 1, 1),
+        flag = "text_studs_color",
+        callback = function(color)
+            _G.ESP_Config.Text.Studs.Color = color
+        end
+    })
+    distance_section:dropdown({
+        name = "Side",
+        flag = "text_studs_side",
+        items = {"Top", "Bot"},
+        default = "Bot",
+        dependency = "text_studs_enable",
+        callback = function(selected)
+            _G.ESP_Config.Text.Studs.Side = selected
+        end
+    })
+    -- Фиксированный размер для Distance = 12, шрифт TahomaBold
+
+    -- Tool
+    local tool_section = esp_column3:section({name = "Tool"})
+    local tool_toggle = tool_section:toggle({
+        name = "Enabled",
+        flag = "text_tool_enable",
+        callback = function(enabled)
+            _G.ESP_Config.Text.Tool.Enable = enabled
+            _G.ESP_Config.Text.Tool.Size = 12
+            _G.ESP_Config.Text.Tool.Font = "TahomaBold"
+        end
+    })
+    tool_toggle:colorpicker({
+        name = "Text Color",
+        color = vars.Color3new(1, 1, 1),
+        flag = "text_tool_color",
+        callback = function(color)
+            _G.ESP_Config.Text.Tool.Color = color
+        end
+    })
+    tool_section:dropdown({
+        name = "Side",
+        flag = "text_tool_side",
+        items = {"Top", "Bot"},
+        default = "Bot",
+        dependency = "text_tool_enable",
+        callback = function(selected)
+            _G.ESP_Config.Text.Tool.Side = selected
+        end
+    })
+    -- Фиксированный размер для Tool = 12, шрифт TahomaBold
+
+    -- State
+    local state_section = esp_column3:section({name = "State"})
+    local state_toggle = state_section:toggle({
+        name = "Enabled",
+        flag = "text_state_enable",
+        callback = function(enabled)
+            _G.ESP_Config.Text.State.Enable = enabled
+            _G.ESP_Config.Text.State.Size = 12
+            _G.ESP_Config.Text.State.Font = "TahomaBold"
+        end
+    })
+    state_toggle:colorpicker({
+        name = "Text Color",
+        color = vars.Color3new(1, 1, 1),
+        flag = "text_state_color",
+        callback = function(color)
+            _G.ESP_Config.Text.State.Color = color
+        end
+    })
+    state_section:dropdown({
+        name = "Side",
+        flag = "text_state_side",
+        items = {"Top", "Bot"},
+        default = "Bot",
+        dependency = "text_state_enable",
+        callback = function(selected)
+            _G.ESP_Config.Text.State.Side = selected
+        end
+    })
+    -- Фиксированный размер для State = 12, шрифт TahomaBold
+    
+    -- Bars секция (вторая колонка)
+    local health_section = esp_column2:section({name = "Health Bar"})
+    
+    -- Health: Enabled + 3 градиентных цвета
+    local health_toggle = health_section:toggle({
+        name = "Enabled",
+        flag = "bars_health_enable",
+        callback = function(enabled)
+            _G.ESP_Config.Bars.Health.Enable = enabled
+            _G.ESP_Config.Bars.Health.Lerp = true -- лерп всегда включен
+        end
+    })
+    health_toggle:colorpicker({
+        name = "Color 1",
+        color = vars.Color3new(0, 1, 0),
+        flag = "bars_health_color1",
+        callback = function(color)
+            _G.ESP_Config.Bars.Health.Color1 = color
+        end
+    })
+    health_toggle:colorpicker({
+        name = "Color 2",
+        color = vars.Color3new(0, 1, 0),
+        flag = "bars_health_color2",
+        callback = function(color)
+            _G.ESP_Config.Bars.Health.Color2 = color
+        end
+    })
+    
+    health_section:dropdown({
+        name = "Side",
+        flag = "bars_health_side",
+        items = {"Left", "Right", "Top", "Bot"},
+        default = "Right",
+        dependency = "bars_health_enable",
+        callback = function(selected)
+            _G.ESP_Config.Bars.Health.Side = selected
+        end
+    })
+    
+    health_section:slider({
+        name = "Width",
+        flag = "bars_health_width",
+        min = 1,
+        max = 10,
+        default = 3,
+        interval = 1,
+        dependency = "bars_health_enable",
+        callback = function(value)
+            _G.ESP_Config.Bars.Health.Width = value
+        end
+    })
+    
+    health_section:slider({
+        name = "Offset",
+        flag = "bars_health_offset",
+        min = 0,
+        max = 15,
+        default = 4,
+        interval = 1,
+        dependency = "bars_health_enable",
+        callback = function(value)
+            _G.ESP_Config.Bars.Health.Offset = value
+        end
+    })
+    
+    -- Armor секция
+    local armor_section = esp_column2:section({name = "Armor Bar"})
+    
+    -- Armor: Enabled + 3 градиентных цвета
+    local armor_toggle = armor_section:toggle({
+        name = "Enabled",
+        flag = "bars_armor_enable",
+        callback = function(enabled)
+            _G.ESP_Config.Bars.Armor.Enable = enabled
+            _G.ESP_Config.Bars.Armor.Lerp = true -- лерп всегда включен
+        end
+    })
+    armor_toggle:colorpicker({
+        name = "Color 1",
+        color = vars.Color3new(0, 89/255, 1),
+        flag = "bars_armor_color1",
+        callback = function(color)
+            _G.ESP_Config.Bars.Armor.Color1 = color
+        end
+    })
+    armor_toggle:colorpicker({
+        name = "Color 2",
+        color = vars.Color3new(60/255, 97/255, 219/255),
+        flag = "bars_armor_color2",
+        callback = function(color)
+            _G.ESP_Config.Bars.Armor.Color2 = color
+        end
+    })
+    
+    armor_section:dropdown({
+        name = "Side",
+        flag = "bars_armor_side",
+        items = {"Left", "Right", "Top", "Bot"},
+        default = "Bot",
+        dependency = "bars_armor_enable",
+        callback = function(selected)
+            _G.ESP_Config.Bars.Armor.Side = selected
+        end
+    })
+    
+    armor_section:slider({
+        name = "Width",
+        flag = "bars_armor_width",
+        min = 1,
+        max = 10,
+        default = 3,
+        interval = 1,
+        dependency = "bars_armor_enable",
+        callback = function(value)
+            _G.ESP_Config.Bars.Armor.Width = value
+        end
+    })
+    
+    armor_section:slider({
+        name = "Offset",
+        flag = "bars_armor_offset",
+        min = 0,
+        max = 15,
+        default = 4,
+        interval = 1,
+        dependency = "bars_armor_enable",
+        callback = function(value)
+            _G.ESP_Config.Bars.Armor.Offset = value
+        end
+    })
+end
+
+-- Инициализация темы
+library:update_theme("accent", vars.Color3new(139/255, 92/255, 246/255))
+library:update_theme("contrast", vars.ColorSeq({
+    vars.ColorSeqKey(0, vars.Color3new(30/255, 30/255, 30/255)),
+    vars.ColorSeqKey(1, vars.Color3new(45/255, 45/255, 45/255))
+}))
+library:update_theme("inline", vars.Color3new(60/255, 60/255, 60/255))
+library:update_theme("outline", vars.Color3new(0, 0, 0))
+library:update_theme("text", vars.Color3new(1, 1, 1))
+library:update_theme("text_outline", vars.Color3new(0, 0, 0))
+library:update_theme("glow", vars.Color3new(139/255, 92/255, 246/255))
+
+-- Обновляем список конфигов при загрузке
+library:config_list_update()
+print("loadend")
