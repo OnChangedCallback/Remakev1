@@ -1,5 +1,7 @@
 print("load started")
-local vars = {
+
+-- Глобальная таблица переменных
+vars = {
     -- Services
     Players = game:GetService("Players"),
     RunService = game:GetService("RunService"),
@@ -9,65 +11,183 @@ local vars = {
     HttpService = game:GetService("HttpService"),
     TeleportService = game:GetService("TeleportService"),
     MarketplaceService = game:GetService("MarketplaceService"),
+    ReplicatedStorage = game:GetService("ReplicatedStorage"),
+    Lighting = game:GetService("Lighting"),
     
     -- Player
     LocalPlayer = game:GetService("Players").LocalPlayer,
     
-    -- Math
+    -- Math & Constructors
     Vector2new = Vector2.new,
     Vector3new = Vector3.new,
     CFramenew = CFrame.new,
+    CFrameAngles = CFrame.Angles,
     Color3new = Color3.new,
-    Color3Hex = Color3.fromHex,
-    dim2 = UDim2.new,
-    ColorSeq = ColorSequence.new,
+    Color3fromRGB = Color3.fromRGB,
+    Color3fromHex = Color3.fromHex,
+    UDim2new = UDim2.new,
+    UDimnew = UDim.new,
+    ColorSeqnew = ColorSequence.new,
     ColorSeqKey = ColorSequenceKeypoint.new,
+    Instancenew = Instance.new,
+    
+    -- Drawing
+    Drawingnew = Drawing and Drawing.new,
+    
+    -- Math functions
+    math_random = math.random,
+    math_min = math.min,
+    math_max = math.max,
+    math_floor = math.floor,
+    math_ceil = math.ceil,
+    math_abs = math.abs,
+    math_sqrt = math.sqrt,
+    math_rad = math.rad,
+    math_deg = math.deg,
+    math_sin = math.sin,
+    math_cos = math.cos,
+    math_tan = math.tan,
+    math_atan2 = math.atan2,
+    math_huge = math.huge,
+    
+    -- String functions
+    str_find = string.find,
+    str_sub = string.sub,
+    str_format = string.format,
+    str_lower = string.lower,
+    str_upper = string.upper,
+    str_match = string.match,
+    
+    -- Table functions
+    tbl_insert = table.insert,
+    tbl_remove = table.remove,
+    tbl_find = table.find,
+    tbl_concat = table.concat,
+    
+    -- Task functions
+    task_wait = task.wait,
+    task_spawn = task.spawn,
+    task_defer = task.defer,
     
     -- Other
-    Drawing = Drawing.new,
-    random = math.random,
-    task_wait = task.wait,
-    math_min = math.min,
-    str_find = string.find
+    tick = tick,
+    time = time,
+    os_date = os.date,
+    os_time = os.time,
+    pairs = pairs,
+    ipairs = ipairs,
+    next = next,
+    pcall = pcall,
+    xpcall = xpcall,
+    typeof = typeof,
+    type = type,
+    tostring = tostring,
+    tonumber = tonumber,
+    rawget = rawget,
+    rawset = rawset,
+    setmetatable = setmetatable,
+    getmetatable = getmetatable
 }
 
--- Загрузка библиотеки
-local library, dim2, hex, rgbseq, rgbkey, themes, flags, random, lp = loadstring(game:HttpGet("https://raw.githubusercontent.com/OnChangedCallback/Remakev1/refs/heads/main/lib"))()
+-- Загрузка UI библиотеки
+local library, _, _, _, _, themes, flags = loadstring(game:HttpGet("https://raw.githubusercontent.com/OnChangedCallback/Remakev1/refs/heads/main/lib"))()
 print("uiloaded")
--- Загрузка ESP библиотеки
-loadstring(game:HttpGet("https://raw.githubusercontent.com/OnChangedCallback/Remakev1/refs/heads/main/esp"))()
-print("esploaded")
--- Создание окна
-local window = library:window({
-    name = "luasex",
-    size = vars.dim2(0, 780, 0, 639)
-})
 
--- Создание вкладок
-local RageTab = window:tab({ name = "Rage", enabled = true })
-local EspTab = window:tab({ name = "Esp", enabled = true })
-local VisualsTab = window:tab({ name = "Visuals", enabled = true })
-local ConfigTab = window:tab({ name = "Config", enabled = true })
+-- Утилити библиотека (должна быть до всего остального кода)
+local utility = {}
+local framework = {connections = {}}
 
--- Глобальные переменные для HUD элементов
-local watermark = library:watermark({
-    text = "Rebuild.gg - " .. os.date("%H:%M:%S")
-})
-
-local radar = library:radar({
-    enabled = false,
-    size = 200
-})
-
--- Переменная для хранения dropdown конфигов
+-- Глобальные переменные
 local config_holder = nil
 local default_config = nil
 local game_name_cache = nil
+local watermark = nil
+local radar = nil
 
--- Утилити функции
-local utility = {}
-
+-- Utility функции
 do
+    -- Получение имени игры с кешированием
+    utility.get_game_name = function()
+        if game_name_cache ~= nil then
+            return game_name_cache
+        end
+        local success, info = pcall(function()
+            return vars.MarketplaceService:GetProductInfo(game.PlaceId)
+        end)
+        local name = success and info and info.Name or tostring(game.PlaceId)
+        game_name_cache = name
+        return name
+    end
+    
+    -- Создание уведомления
+    utility.notify = function(text, duration)
+        library:notification({text = text, time = duration or 3})
+    end
+    
+    -- Безопасное получение конфига
+    utility.get_config_path = function(name)
+        return library.directory .. "/configs/" .. name .. ".cfg"
+    end
+    
+    -- Проверка существования конфига
+    utility.config_exists = function(name)
+        if not name or name == "" then return false end
+        local path = utility.get_config_path(name)
+        return isfile and isfile(path) or false
+    end
+    
+    -- Сохранение конфига
+    utility.save_config = function(name)
+        if not name or name == "" then
+            utility.notify("Enter config name first!", 3)
+            return false
+        end
+        writefile(utility.get_config_path(name), library:get_config())
+        library:config_list_update()
+        utility.notify("Saved config: " .. name, 3)
+        return true
+    end
+    
+    -- Загрузка конфига
+    utility.load_config = function(name)
+        if not name or name == "" then
+            utility.notify("Select a config first!", 3)
+            return false
+        end
+        if not utility.config_exists(name) then
+            utility.notify("Config does not exist: " .. name, 3)
+            return false
+        end
+        library:load_config(readfile(utility.get_config_path(name)))
+        utility.notify("Loaded config: " .. name, 3)
+        return true
+    end
+    
+    -- Удаление конфига
+    utility.delete_config = function(name)
+        if not name or name == "" then
+            utility.notify("Select a config first!", 3)
+            return false
+        end
+        if not utility.config_exists(name) then
+            utility.notify("Config does not exist: " .. name, 3)
+            return false
+        end
+        delfile(utility.get_config_path(name))
+        library:config_list_update()
+        utility.notify("Deleted config: " .. name, 3)
+        return true
+    end
+    
+    -- Копирование в буфер обмена
+    utility.copy_to_clipboard = function(text)
+        if setclipboard then
+            setclipboard(text)
+            return true
+        end
+        return false
+    end
+    
     -- Функция для обновления текста watermark
     utility.update_watermark_text = function()
         local watermark_type = flags["watermark_type"]
@@ -98,7 +218,7 @@ do
                 parts[#parts + 1] = os.date("%H:%M:%S")
             end
             if selected["Place"] then
-                parts[#parts + 1] = get_game_name()
+                parts[#parts + 1] = utility.get_game_name()
             end
             if selected["User"] then
                 parts[#parts + 1] = vars.LocalPlayer and vars.LocalPlayer.Name or "?"
@@ -112,14 +232,109 @@ do
         return "Rebuild.gg - " .. table.concat(parts, " - ")
     end
     
-    -- Глобальная функция для загрузки конфига
-    getgenv().load_config = function(config_name)
-        library:load_config(readfile(library.directory .. "/configs/" .. config_name .. ".cfg"))
+    -- Безопасное выполнение HTTP запроса с повторными попытками
+    utility.http_get_with_retry = function(url, attempts)
+        attempts = attempts or 5
+        local delay = 1
+        for i = 1, attempts do
+            local ok, body = pcall(function()
+                return game:HttpGetAsync(url)
+            end)
+            if ok then
+                return true, body
+            else
+                local msg = tostring(body)
+                if vars.str_find(msg, "429") or vars.str_find(msg, "Too Many Requests") then
+                    vars.task_wait(delay + (vars.math_random(0, 250) / 1000))
+                    delay = vars.math_min(delay * 2, 8)
+                else
+                    return false, msg
+                end
+            end
+        end
+        return false, "Max attempts reached"
     end
+    
+    -- Получение списка серверов
+    utility.fetch_servers = function()
+        local url = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
+        local ok, body = utility.http_get_with_retry(url)
+        if not ok then
+            utility.notify("Failed to fetch servers: " .. tostring(body), 3)
+            return nil
+        end
+        
+        local ok2, decoded = pcall(function()
+            return vars.HttpService:JSONDecode(body)
+        end)
+        if not ok2 then
+            utility.notify("Failed to decode server list", 3)
+            return nil
+        end
+        
+        return decoded
+    end
+    
+    -- Телепорт на новый сервер
+    utility.join_new_server = function(max_players)
+        local servers = utility.fetch_servers()
+        if not servers or not servers.data or #servers.data == 0 then
+            utility.notify("Сервера недоступны или пустой список", 3)
+            return
+        end
+        
+        local candidates = {}
+        for _, s in ipairs(servers.data) do
+            if s.id ~= game.JobId and s.playing < s.maxPlayers and s.playing <= (max_players or 15) then
+                vars.tbl_insert(candidates, s)
+            end
+        end
+        
+        if #candidates == 0 then
+            utility.notify("Свободных серверов не найдено", 3)
+            return
+        end
+        
+        local target = candidates[vars.math_random(1, #candidates)]
+        vars.TeleportService:TeleportToPlaceInstance(game.PlaceId, target.id, vars.LocalPlayer)
+    end
+end
+
+-- Загрузка ESP библиотеки
+do
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/OnChangedCallback/Remakev1/refs/heads/main/esp"))()
+    print("esploaded")
+end
+
+-- Создание UI
+do
+    -- Создание окна
+    local window = library:window({
+        name = "luasex",
+        size = vars.UDim2new(0, 780, 0, 639)
+    })
+    
+    -- Создание вкладок
+    _G.RageTab = window:tab({ name = "Rage", enabled = true })
+    _G.EspTab = window:tab({ name = "Esp", enabled = true })
+    _G.VisualsTab = window:tab({ name = "Visuals", enabled = true })
+    _G.ConfigTab = window:tab({ name = "Config", enabled = true })
+    _G.window = window
+    
+    -- Создание HUD элементов
+    watermark = library:watermark({
+        text = "Rebuild.gg - " .. vars.os_date("%H:%M:%S")
+    })
+    
+    radar = library:radar({
+        enabled = false,
+        size = 200
+    })
 end
 
 -- Config Tab содержимое
 do
+    local ConfigTab = _G.ConfigTab
     local config_column = ConfigTab:column()
     local config_section = config_column:section({name = "Options"})
     
@@ -142,13 +357,7 @@ do
         name = "Create",
         callback = function()
             local config_name = flags["config_name_text_box"]
-            if config_name and config_name ~= "" then
-                writefile(library.directory .. "/configs/" .. config_name .. ".cfg", library:get_config())
-                library:config_list_update()
-                library:notification({text = "Created config: " .. config_name, time = 3})
-            else
-                library:notification({text = "Enter config name first!", time = 3})
-            end
+            utility.save_config(config_name)
         end
     })
     
@@ -156,13 +365,7 @@ do
         name = "Delete",
         callback = function()
             local selected_config = flags["config_name_list"]
-            if selected_config and selected_config ~= "" then
-                delfile(library.directory .. "/configs/" .. selected_config .. ".cfg")
-                library:config_list_update()
-                library:notification({text = "Deleted config: " .. selected_config, time = 3})
-            else
-                library:notification({text = "Select a config first!", time = 3})
-            end
+            utility.delete_config(selected_config)
         end
     })
     
@@ -172,12 +375,7 @@ do
         name = "Load",
         callback = function()
             local selected_config = flags["config_name_list"]
-            if selected_config and selected_config ~= "" then
-                library:load_config(readfile(library.directory .. "/configs/" .. selected_config .. ".cfg"))
-                library:notification({text = "Loaded config: " .. selected_config, time = 3})
-            else
-                library:notification({text = "Select a config first!", time = 3})
-            end
+            utility.load_config(selected_config)
         end
     })
     
@@ -185,13 +383,7 @@ do
         name = "Save",
         callback = function()
             local selected_config = flags["config_name_list"]
-            if selected_config and selected_config ~= "" then
-                writefile(library.directory .. "/configs/" .. selected_config .. ".cfg", library:get_config())
-                library:config_list_update()
-                library:notification({text = "Saved config: " .. selected_config, time = 3})
-            else
-                library:notification({text = "Select a config first!", time = 3})
-            end
+            utility.save_config(selected_config)
         end
     })
     
@@ -201,7 +393,7 @@ do
         name = "Refresh Configs",
         callback = function()
             library:config_list_update()
-            library:notification({text = "Refreshed config list", time = 2})
+            utility.notify("Refreshed config list", 2)
         end
     })
     
@@ -211,7 +403,7 @@ do
         name = "Reset to Default",
         callback = function()
             library:load_config(default_config)
-            library:notification({text = "Reset to default config", time = 3})
+            utility.notify("Reset to default config", 3)
         end
     })
     
@@ -250,7 +442,7 @@ do
         flag = "theme_low",
         callback = function(color)
             if flags["theme_high"] and flags["theme_low"] then
-                library:update_theme("contrast", vars.ColorSeq({
+                library:update_theme("contrast", vars.ColorSeqnew({
                     vars.ColorSeqKey(0, flags["theme_low"].Color),
                     vars.ColorSeqKey(1, flags["theme_high"].Color)
                 }))
@@ -263,7 +455,7 @@ do
         flag = "theme_high",
         callback = function(color)
             if flags["theme_high"] and flags["theme_low"] then
-                library:update_theme("contrast", vars.ColorSeq({
+                library:update_theme("contrast", vars.ColorSeqnew({
                     vars.ColorSeqKey(0, flags["theme_low"].Color),
                     vars.ColorSeqKey(1, flags["theme_high"].Color)
                 }))
@@ -321,7 +513,7 @@ do
         key = Enum.KeyCode.Insert,
         flag = "ui_bind",
         callback = function(key)
-            window.visible = not window.visible
+            _G.window.visible = not _G.window.visible
         end
     })
     
@@ -391,16 +583,16 @@ do
     game_section:button({
         name = "Copy JobId",
         callback = function()
-            setclipboard(game.JobId)
-            library:notification({text = "Copied JobId to clipboard", time = 2})
+            utility.copy_to_clipboard(game.JobId)
+            utility.notify("Copied JobId to clipboard", 2)
         end
     })
     
     game_section:button({
         name = "Copy GameID",
         callback = function()
-            setclipboard(tostring(game.GameId))
-            library:notification({text = "Copied GameId to clipboard", time = 2})
+            utility.copy_to_clipboard(tostring(game.GameId))
+            utility.notify("Copied GameId to clipboard", 2)
         end
     })
     
@@ -409,11 +601,12 @@ do
     game_section:button({
         name = "Copy Join Script",
         callback = function()
-            setclipboard(
-                'game:GetService("TeleportService"):TeleportToPlaceInstance(' ..
-                game.PlaceId .. ', "' .. game.JobId .. '", game.Players.LocalPlayer)'
+            local script = vars.str_format(
+                'game:GetService("TeleportService"):TeleportToPlaceInstance(%d, "%s", game.Players.LocalPlayer)',
+                game.PlaceId, game.JobId
             )
-            library:notification({text = "Copied join script to clipboard", time = 2})
+            utility.copy_to_clipboard(script)
+            utility.notify("Copied join script to clipboard", 2)
         end
     })
     
@@ -431,60 +624,7 @@ do
     game_section:button({
         name = "Join New Server",
         callback = function()
-            local url = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
-
-            local fetch_servers
-            fetch_servers = function(attempts)
-                attempts = attempts or 5
-                local delay = 1
-                for i = 1, attempts do
-                    local ok, body = pcall(function()
-                        return game:HttpGetAsync(url)
-                    end)
-                    if ok then
-                        local ok2, decoded = pcall(function()
-                            return vars.HttpService:JSONDecode(body)
-                        end)
-                        if ok2 then
-                            return decoded
-                        else
-                            library:notification({text = "Server list decode failed", time = 2})
-                            return nil
-                        end
-                    else
-                        local msg = tostring(body)
-                        if vars.str_find(msg, "429") or vars.str_find(msg, "Too Many Requests") then
-                            vars.task_wait(delay + (vars.random(0, 250) / 1000))
-                            delay = vars.math_min(delay * 2, 8)
-                        else
-                            library:notification({text = "HTTP error: " .. msg, time = 2})
-                            return nil
-                        end
-                    end
-                end
-                return nil
-            end
-
-            local servers = fetch_servers()
-            if not servers or not servers.data or #servers.data == 0 then
-                library:notification({text = "Сервера недоступны или пустой список", time = 2})
-                return
-            end
-
-            local candidates = {}
-            for _, s in ipairs(servers.data) do
-                if s.id ~= game.JobId and s.playing < s.maxPlayers and s.playing <= (flags["max_players"] or 15) then
-                    table.insert(candidates, s)
-                end
-            end
-
-            if #candidates == 0 then
-                library:notification({text = "Свободных серверов не найдено", time = 2})
-                return
-            end
-
-            local target = candidates[vars.random(1, #candidates)]
-            vars.TeleportService:TeleportToPlaceInstance(game.PlaceId, target.id, vars.LocalPlayer)
+            utility.join_new_server(flags["max_players"])
         end
     })
     
@@ -498,29 +638,21 @@ do
     })
 end
 
--- Radar система
+-- Framework: Radar система
 do
-    local add_player_to_radar = function(player)
+    framework.add_player_to_radar = function(player)
         if player ~= vars.LocalPlayer and radar and radar.add_dot then
-            print("Adding player to radar:", player.Name) -- Debug
             radar.add_dot(player)
         end
     end
     
-    -- Подключаем события
-    table.insert(library.connections, vars.Players.PlayerAdded:Connect(add_player_to_radar))
-    
-    table.insert(library.connections, vars.Players.PlayerRemoving:Connect(function(player)
+    framework.remove_player_from_radar = function(player)
         if radar and radar.remove_dot then
-            print("Removing player from radar:", player.Name) -- Debug
             radar.remove_dot(player)
         end
-    end))
+    end
     
-    -- Обновление позиций на радаре
-    local radar_connection = nil
-    
-    local update_radar_positions = function()
+    framework.update_radar_positions = function()
         if radar and radar.update_dot then
             for _, player in ipairs(vars.Players:GetPlayers()) do
                 if player ~= vars.LocalPlayer then
@@ -534,15 +666,19 @@ do
         end
     end
     
-    -- Запускаем обновление позиций сразу
-    radar_connection = vars.RunService.RenderStepped:Connect(update_radar_positions)
-    table.insert(library.connections, radar_connection)
+    -- Подключаем события
+    vars.tbl_insert(library.connections, vars.Players.PlayerAdded:Connect(framework.add_player_to_radar))
+    vars.tbl_insert(library.connections, vars.Players.PlayerRemoving:Connect(framework.remove_player_from_radar))
+    
+    -- Запускаем обновление позиций
+    local radar_connection = vars.RunService.RenderStepped:Connect(framework.update_radar_positions)
+    vars.tbl_insert(library.connections, radar_connection)
 end
 
 -- Обновление watermark каждую секунду
 do
-    task.spawn(function()
-        while task.wait(1) do
+    vars.task_spawn(function()
+        while vars.task_wait(1) do
             if flags["watermark"] then
                 watermark.change_text(utility.update_watermark_text())
             end
@@ -552,6 +688,7 @@ end
 
 -- ESP Tab содержимое
 do
+    local EspTab = _G.EspTab
     -- Создаем колонки для ESP вкладки
     local esp_column1 = EspTab:column()
     local esp_column2 = EspTab:column()
@@ -951,7 +1088,7 @@ end
 
 -- Инициализация темы
 library:update_theme("accent", vars.Color3new(139/255, 92/255, 246/255))
-library:update_theme("contrast", vars.ColorSeq({
+library:update_theme("contrast", vars.ColorSeqnew({
     vars.ColorSeqKey(0, vars.Color3new(30/255, 30/255, 30/255)),
     vars.ColorSeqKey(1, vars.Color3new(45/255, 45/255, 45/255))
 }))
@@ -963,4 +1100,6 @@ library:update_theme("glow", vars.Color3new(139/255, 92/255, 246/255))
 
 -- Обновляем список конфигов при загрузке
 library:config_list_update()
+
+print("load finished")
 print("loadend")
