@@ -453,21 +453,13 @@ function Fonts.load_all_fonts()
 end
 
 function Fonts.get_font(font_name)
-    local f = loaded_fonts[font_name]
-    if not f then
-        -- логируем единожды список доступных шрифтов для диагностики
-        local available = {}
-        for k, _ in pairs(loaded_fonts) do table.insert(available, tostring(k)) end
-        warn(string.format("[ESP Fonts] Missing font '%s'. Available: %s", tostring(font_name), table.concat(available, ", ")))
-        return loaded_fonts["ProggyClean"]
-    end
-    return f
+    return loaded_fonts[font_name] or loaded_fonts["ProggyClean"]
 end
 
 function Fonts.get_text_style(text_type)
     local config_text = _G.ESP_Config and _G.ESP_Config.Text and _G.ESP_Config.Text[text_type] or {}
-    local default_font_name = _G.ESP_Config and _G.ESP_Config.Box and _G.ESP_Config.Box.Font or "ProggyClean"
-    local font_name = config_text.Font or default_font_name
+    -- Используем индивидуальный шрифт для каждого текстового элемента
+    local font_name = config_text.Font or "ProggyClean"
     local tuning = Fonts.get_font_tuning(font_name)
 
     return {
@@ -496,19 +488,7 @@ function Rendering.make_text(parent, text_type)
     R.TextStrokeColor3 = U.stroke_c
     R.TextStrokeTransparency = U.stroke_t
     R.TextSize = U.size
-    do
-        local fontFace = Fonts.get_font(U.fontName)
-        local ok, err = pcall(function()
-            R.FontFace = fontFace
-        end)
-        if not ok then
-            warn("[ESP Fonts] Failed to set FontFace in make_text: " .. tostring(err))
-            -- безопасный фоллбек на стандартный шрифт
-            if vars and vars.Enum and vars.Enum.Font then
-                R.Font = vars.Enum.Font.SourceSans
-            end
-        end
-    end
+    R.FontFace = Fonts.get_font(U.fontName)
     return R
 end
 
@@ -982,12 +962,18 @@ function Rendering.update(player)
                     return bz < bA
                 end
             )
-
-            for _, bB in ipairs(bg) do
-                local bC = bB.label
-                if bC then
-                    if bB.side == bu and bB.enable then
+            for a0, bB in vars.ipairs(bg) do
+                if bB.side == bu then
+                    local bC = bB.label
+                    if bB.enable then
+                        -- Обновляем tune каждый кадр для подхвата изменений шрифтов
+                        bB.tune = Fonts.get_text_style(bB.key)
                         bC.Visible = true
+                        bC.FontFace = Fonts.get_font(bB.tune.fontName) or bC.FontFace
+                        bC.TextSize = bB.tune.size
+                        bC.TextColor3 = bB.tune.text_c
+                        bC.TextStrokeColor3 = bB.tune.stroke_c
+                        bC.TextStrokeTransparency = bB.tune.stroke_t
                         if bB.key == "Name" then
                             bC.Text = player.Name
                         elseif bB.key == "Tool" then
@@ -997,25 +983,6 @@ function Rendering.update(player)
                         elseif bB.key == "State" then
                             bC.Text = bn.state
                         end
-
-                        -- динамическое применение шрифта и параметров текста с безопасной обёрткой
-                        do
-                            local fontFace = Fonts.get_font(bB.tune.fontName)
-                            local ok, err = pcall(function()
-                                bC.FontFace = fontFace
-                            end)
-                            if not ok then
-                                warn("[ESP Fonts] Failed to set FontFace in update: " .. tostring(err))
-                                if vars and vars.Enum and vars.Enum.Font then
-                                    bC.Font = vars.Enum.Font.SourceSans
-                                end
-                            end
-                        end
-                        bC.TextSize = bB.tune.size
-                        bC.TextColor3 = bB.tune.text_c
-                        bC.TextStrokeColor3 = bB.tune.stroke_c
-                        bC.TextStrokeTransparency = bB.tune.stroke_t
-
                         local bD = bu == "Top" and math.floor(bx) or math.floor(bx)
                         bC.Position = vars.UDim2(0, math.floor(aT - bC.AbsoluteSize.X / 2), 0, bD)
                         bx = bu == "Top" and bx - bc or bx + bc
