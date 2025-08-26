@@ -1491,4 +1491,83 @@ _G.ESP_Stop = function()
     end
 end
 
+-- Utility функции для изменения шрифтов ESP
+do
+    -- Функция для обновления шрифта в существующих текстовых элементах
+    local function updateExistingTextFont(textType, newFont)
+        -- Получаем Font объект для нового шрифта
+        local fontObject = Fonts.get_font(newFont)
+        
+        -- Обновляем все существующие ESP элементы
+        for player, espData in vars.pairs(I) do
+            if espData and espData.Text and espData.Text[textType] then
+                local textLabel = espData.Text[textType].Gui
+                if textLabel then
+                    -- Применяем новый шрифт
+                    local success = pcall(function()
+                        if type(fontObject) == "userdata" then
+                            textLabel.FontFace = fontObject
+                        elseif type(fontObject) == "string" then
+                            textLabel.Font = vars.Enum.Font[fontObject] or vars.Enum.Font.SourceSans
+                        else
+                            textLabel.Font = fontObject
+                        end
+                    end)
+                    
+                    if not success then
+                        -- Fallback на установку через Font свойство
+                        pcall(function()
+                            textLabel.Font = vars.Enum.Font[newFont] or vars.Enum.Font.SourceSans
+                        end)
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Функция для изменения шрифта Name
+    _G.changeEspNameFont = function(fontName)
+        if not fontName then return end
+        
+        -- Обновляем конфиг
+        _G.ESP_Config.Text.Name.Font = fontName
+        
+        -- Обновляем существующие элементы
+        updateExistingTextFont("Name", fontName)
+    end
+    
+    -- Функция для изменения шрифта Studs/Distance
+    _G.changeEspStudsFont = function(fontName)
+        if not fontName then return end
+        
+        -- Обновляем конфиг
+        _G.ESP_Config.Text.Studs.Font = fontName
+        
+        -- Обновляем существующие элементы
+        updateExistingTextFont("Studs", fontName)
+    end
+    
+    -- Функция для изменения шрифта Tool
+    _G.changeEspToolFont = function(fontName)
+        if not fontName then return end
+        
+        -- Обновляем конфиг
+        _G.ESP_Config.Text.Tool.Font = fontName
+        
+        -- Обновляем существующие элементы
+        updateExistingTextFont("Tool", fontName)
+    end
+    
+    -- Функция для изменения шрифта State
+    _G.changeEspStateFont = function(fontName)
+        if not fontName then return end
+        
+        -- Обновляем конфиг
+        _G.ESP_Config.Text.State.Font = fontName
+        
+        -- Обновляем существующие элементы
+        updateExistingTextFont("State", fontName)
+    end
+end
+
 return ESP_Library
