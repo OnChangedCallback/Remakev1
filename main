@@ -11,9 +11,6 @@ vars = {
     HttpService = game:GetService("HttpService"),
     TeleportService = game:GetService("TeleportService"),
     MarketplaceService = game:GetService("MarketplaceService"),
-    ReplicatedStorage = game:GetService("ReplicatedStorage"),
-    Lighting = game:GetService("Lighting"),
-    GuiService = game:GetService("GuiService"),
     
     -- Player
     LocalPlayer = game:GetService("Players").LocalPlayer,
@@ -42,20 +39,10 @@ vars = {
     math_min = math.min,
     math_max = math.max,
     math_floor = math.floor,
-    math_ceil = math.ceil,
-    math_abs = math.abs,
-    math_sqrt = math.sqrt,
-    math_rad = math.rad,
-    math_deg = math.deg,
     math_sin = math.sin,
     math_cos = math.cos,
-    math_tan = math.tan,
-    math_atan2 = math.atan2,
     math_huge = math.huge,
     math_pi = math.pi,
-    
-    -- Time functions
-    tick = tick,
     
     -- String functions
     str_find = string.find,
@@ -68,7 +55,7 @@ vars = {
     -- Table functions
     tbl_insert = table.insert,
     tbl_remove = table.remove,
-    tbl_find = table.find,
+    tbl_find = table.find or function(t, v) for i, val in ipairs(t) do if val == v then return i end end return nil end,
     tbl_concat = table.concat,
     
     -- Task functions
@@ -78,15 +65,13 @@ vars = {
     
     -- Other
     tick = tick,
-    time = time,
     os_date = os.date,
-    os_time = os.time,
     pairs = pairs,
     ipairs = ipairs,
     next = next,
     pcall = pcall,
     xpcall = xpcall,
-    typeof = typeof,
+    typeof = typeof or type,
     type = type,
     tostring = tostring,
     tonumber = tonumber,
@@ -128,22 +113,22 @@ local targeting_framework = {
 -- Глобальные переменные
 local config_holder = nil
 local default_config = nil
-local game_name_cache = nil
 local watermark = nil
 local radar = nil
 
 -- Utility функции
 do
     -- Получение имени игры с кешированием
+    utility.game_name_cache = nil
     utility.get_game_name = function()
-        if game_name_cache ~= nil then
-            return game_name_cache
+        if utility.game_name_cache ~= nil then
+            return utility.game_name_cache
         end
         local success, info = pcall(function()
             return vars.MarketplaceService:GetProductInfo(game.PlaceId)
         end)
         local name = success and info and info.Name or tostring(game.PlaceId)
-        game_name_cache = name
+        utility.game_name_cache = name
         return name
     end
     
@@ -154,7 +139,18 @@ do
     
     -- Безопасное получение конфига
     utility.get_config_path = function(name)
-        return library.directory .. "/configs/" .. name .. ".cfg"
+        if not name or name == "" then return nil end
+        return "StarRemake/configs/" .. name .. ".cfg"
+    end
+    
+    -- Создание colorpicker для UI элементов
+    utility.add_colorpicker = function(element, name, default_color, flag, callback)
+        return element:colorpicker({
+            name = name,
+            color = default_color,
+            flag = flag,
+            callback = callback
+        })
     end
     
     -- Проверка существования конфига
@@ -880,6 +876,13 @@ do
                     end)
                     dd.hum_conn = nil
                 end
+                
+                if dd.heartbeat_conn then
+                    pcall(function()
+                        dd.heartbeat_conn:Disconnect()
+                    end)
+                    dd.heartbeat_conn = nil
+                end
             end
             
             if not currentTarget then
@@ -906,23 +909,35 @@ do
                 if dd.hum then
                     vars.RunService.Heartbeat:Wait()
                     
-                    dd.hum_conn = dd.hum.HealthChanged:Connect(function(newHealth)
-                        local maxHealth = dd.hum and dd.hum.MaxHealth or 0
+                    -- Улучшенная система отслеживания урона через Heartbeat для точности
+                    dd.heartbeat_conn = vars.RunService.Heartbeat:Connect(function()
+                        if not dd.hum or not dd.hum.Parent then
+                            if dd.heartbeat_conn then
+                                pcall(function() dd.heartbeat_conn:Disconnect() end)
+                                dd.heartbeat_conn = nil
+                            end
+                            return
+                        end
                         
+                        local currentHealth = dd.hum.Health
+                        local maxHealth = dd.hum.MaxHealth
+                        
+                        -- Инициализация при первом запуске
                         if dd.last_health == nil or dd.last_max == nil or maxHealth ~= dd.last_max then
-                            dd.last_health = newHealth
+                            dd.last_health = currentHealth
                             dd.last_max = maxHealth
                             return
                         end
                         
-                        if newHealth ~= dd.last_health then
-                            local damage = dd.last_health - newHealth
-                            if damage > 0 then
-                                local percentage = vars.math_floor((maxHealth > 0 and newHealth / maxHealth or 0) * 100 + 0.5)
+                        -- Проверка изменения здоровья
+                        if currentHealth ~= dd.last_health then
+                            local damage = dd.last_health - currentHealth
+                            if damage > 0 then -- Любой урон больше 0
+                                local percentage = vars.math_floor((maxHealth > 0 and currentHealth / maxHealth or 0) * 100 + 0.5)
                                 local hitInfo = {
                                     player = currentTarget,
                                     damage = damage,
-                                    health = newHealth,
+                                    health = currentHealth,
                                     max = maxHealth,
                                     percentage = percentage
                                 }
@@ -932,7 +947,7 @@ do
                                     pcall(listener, hitInfo)
                                 end
                             end
-                            dd.last_health = newHealth
+                            dd.last_health = currentHealth
                             dd.last_max = maxHealth
                         end
                     end)
@@ -1546,8 +1561,8 @@ do
     function framework.tracer_stop()
         local t = framework.tracer
         if t.conn then pcall(function() t.conn:Disconnect() end) t.conn = nil end
-        if t.line then pcall(function() t.line.Visible = false t.line:Remove() end) t.line = nil end
-        if t.outline then pcall(function() t.outline.Visible = false t.outline:Remove() end) t.outline = nil end
+        if t.line then pcall(function() t.line.Visible = false if t.line.Destroy then t.line:Destroy() end end) t.line = nil end
+        if t.outline then pcall(function() t.outline.Visible = false if t.outline.Destroy then t.outline:Destroy() end end) t.outline = nil end
     end
 
     -- Target Highlight функции
@@ -2133,30 +2148,15 @@ do
     })
     
     -- China Hat колорпикеры для Custom режима
-    china_hat_toggle:colorpicker({
-        name = "Color 1",
-        color = vars.Color3fromRGB(128, 18, 255),
-        flag = "china_hat_color1",
-        callback = function(color)
-            framework.china_hat.c1 = color
-        end
-    })
-    china_hat_toggle:colorpicker({
-        name = "Color 2", 
-        color = vars.Color3fromRGB(255, 0, 128),
-        flag = "china_hat_color2",
-        callback = function(color)
-            framework.china_hat.c2 = color
-        end
-    })
-    china_hat_toggle:colorpicker({
-        name = "Color 3",
-        color = vars.Color3fromRGB(0, 200, 255),
-        flag = "china_hat_color3",
-        callback = function(color)
-            framework.china_hat.c3 = color
-        end
-    })
+    utility.add_colorpicker(china_hat_toggle, "Color 1", vars.Color3fromRGB(128, 18, 255), "china_hat_color1", function(color)
+        framework.china_hat.c1 = color
+    end)
+    utility.add_colorpicker(china_hat_toggle, "Color 2", vars.Color3fromRGB(255, 0, 128), "china_hat_color2", function(color)
+        framework.china_hat.c2 = color
+    end)
+    utility.add_colorpicker(china_hat_toggle, "Color 3", vars.Color3fromRGB(0, 200, 255), "china_hat_color3", function(color)
+        framework.china_hat.c3 = color
+    end)
     
     -- China Hat dependency box
     local china_hat_depbox = visual_section:dependency_box()
