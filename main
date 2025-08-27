@@ -13,9 +13,11 @@ vars = {
     MarketplaceService = game:GetService("MarketplaceService"),
     ReplicatedStorage = game:GetService("ReplicatedStorage"),
     Lighting = game:GetService("Lighting"),
+    GuiService = game:GetService("GuiService"),
     
     -- Player
     LocalPlayer = game:GetService("Players").LocalPlayer,
+    CoreGui = game:GetService("CoreGui"),
     
     -- Math & Constructors
     Vector2new = Vector2.new,
@@ -24,6 +26,7 @@ vars = {
     CFrameAngles = CFrame.Angles,
     Color3new = Color3.new,
     Color3fromRGB = Color3.fromRGB,
+    Color3fromHSV = Color3.fromHSV,
     Color3fromHex = Color3.fromHex,
     UDim2new = UDim2.new,
     UDimnew = UDim.new,
@@ -49,6 +52,10 @@ vars = {
     math_tan = math.tan,
     math_atan2 = math.atan2,
     math_huge = math.huge,
+    math_pi = math.pi,
+    
+    -- Time functions
+    tick = tick,
     
     -- String functions
     str_find = string.find,
@@ -96,6 +103,27 @@ print("uiloaded")
 -- Утилити библиотека (должна быть до всего остального кода)
 local utility = {}
 local framework = {connections = {}}
+
+-- Target Framework переменные (упрощенная версия)
+local targeting_framework = {
+    targeting_state = {current = nil},
+    _target = {info = nil, listeners = {}},
+    _hit_listeners = {},
+    _dd = {
+        last_target = nil,
+        last_char = nil,
+        hum = nil,
+        last_health = nil,
+        last_max = nil,
+        conn = nil,
+        hum_conn = nil,
+        override_player = nil
+    },
+    config = {
+        targeting_enabled = false,
+        target_mode = "Sticky"
+    }
+}
 
 -- Глобальные переменные
 local config_holder = nil
@@ -186,6 +214,44 @@ do
             return true
         end
         return false
+    end
+    
+    -- Target Framework Utility функции
+    utility.ValidateClient = function(player)
+        if not player or not player.Character then
+            return false
+        end
+        local character = player.Character
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if not humanoid or humanoid.Health <= 0 then
+            return false
+        end
+        return humanoid.RootPart ~= nil
+    end
+    
+    utility.GetPreferredPart = function(character)
+        return character and 
+            (character:FindFirstChild("HumanoidRootPart") or 
+             character:FindFirstChild("Head") or 
+             character:FindFirstChild("UpperTorso") or
+             character:FindFirstChild("Torso")) or nil
+    end
+    
+    utility.ToScreen = function(position)
+        local Camera = vars.Workspace.CurrentCamera
+        local v, onScreen = Camera:WorldToViewportPoint(position)
+        -- Используем WorldToViewportPoint напрямую как в оригинальном коде
+        return vars.Vector2new(v.X, v.Y), onScreen
+    end
+    
+    utility.GetMouseLocation = function()
+        -- Возвращает абсолютные экранные координаты курсора (совместимы с Drawing)
+        local ml = vars.UserInputService:GetMouseLocation()
+        return vars.Vector2new(ml.X, ml.Y)
+    end
+    
+    utility.GetMouseDistance = function(screenPoint)
+        return (utility.GetMouseLocation() - screenPoint).Magnitude
     end
     
     -- Функция для обновления текста watermark
@@ -314,6 +380,7 @@ do
     _G.VisualsTab = window:tab({ name = "Visuals", enabled = true })
     _G.ConfigTab = window:tab({ name = "Config", enabled = true })
     _G.window = window
+    
     
     -- Создание HUD элементов
     watermark = library:watermark({
@@ -504,11 +571,8 @@ do
     
     -- HUD секция
     hud_section:label({name = "UI Bind"}):keybind({
+        callback = _G.window.set_menu_visibility,
         key = Enum.KeyCode.Insert,
-        flag = "ui_bind",
-        callback = function(key)
-            _G.window.visible = not _G.window.visible
-        end
     })
     
     hud_section:toggle({
@@ -632,7 +696,263 @@ do
     })
 end
 
--- Framework: Radar система
+-- Target Framework функции
+do
+    -- Получение ближайшей цели к курсору
+    targeting_framework.GetClosestToMouse = function()
+        local closestPlayer, closestDistance = nil, nil
+        
+        for _, player in ipairs(vars.Players:GetPlayers()) do
+            if player ~= vars.LocalPlayer and utility.ValidateClient(player) then
+                local character = player.Character
+                local preferredPart = utility.GetPreferredPart(character)
+                
+                if preferredPart then
+                    local screenPoint, onScreen = utility.ToScreen(preferredPart.Position)
+                    if onScreen then
+                        local mouseDistance = utility.GetMouseDistance(screenPoint)
+                        if not closestDistance or mouseDistance < closestDistance then
+                            closestPlayer, closestDistance = player, mouseDistance
+                        end
+                    end
+                end
+            end
+        end
+        
+        return closestPlayer, closestDistance or math.huge
+    end
+    
+    -- Получение информации о цели
+    targeting_framework.GetTargetInfo = function()
+        local targetInfo = targeting_framework._target.info
+        return targetInfo ~= nil, targetInfo
+    end
+    
+    -- Установка информации о цели
+    targeting_framework.SetTargetInfo = function(player)
+        local targetInfo = nil
+        targeting_framework._dd.override_player = player or nil
+        
+        if player and player.Character then
+            local character = player.Character
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            local rootPart = humanoid and humanoid.RootPart or character:FindFirstChild("HumanoidRootPart")
+            local health = humanoid and humanoid.Health or nil
+            local maxHealth = humanoid and humanoid.MaxHealth or nil
+            local cframe = rootPart and rootPart.CFrame or (character.GetPivot and character:GetPivot() or nil)
+            local position = rootPart and rootPart.Position or (cframe and cframe.Position or nil)
+            
+            targetInfo = {
+                isTarget = true,
+                player = player,
+                userId = player.UserId,
+                name = player.Name,
+                displayName = player.DisplayName,
+                character = character,
+                humanoid = humanoid,
+                root = rootPart,
+                cframe = cframe,
+                position = position,
+                health = health,
+                maxHealth = maxHealth,
+                alive = humanoid and humanoid.Health > 0,
+                time = os.clock()
+            }
+        end
+        
+        targeting_framework._target.info = targetInfo
+        
+        -- Уведомление слушателей
+        for _, listener in ipairs(targeting_framework._target.listeners) do
+            pcall(listener, targetInfo)
+        end
+        
+        if targeting_framework.config.debug then
+            if targetInfo then
+                print("[TargetFeed] SetTargetInfo:", targetInfo.name)
+            else
+                print("[TargetFeed] SetTargetInfo (char not ready):", player and player.Name or "nil")
+            end
+        end
+    end
+    
+    -- Очистка информации о цели
+    targeting_framework.ClearTargetInfo = function()
+        targeting_framework._target.info = nil
+        targeting_framework._dd.override_player = nil
+        
+        for _, listener in ipairs(targeting_framework._target.listeners) do
+            pcall(listener, nil)
+        end
+        
+        if targeting_framework.config.debug then
+            print("[TargetFeed] ClearTargetInfo")
+        end
+    end
+    
+    -- Выбор цели (переключение для Sticky, мгновенный для Nuker)
+    targeting_framework.selectTarget = function()
+        if not targeting_framework.config.targeting_enabled then
+            return
+        end
+        
+        local targetMode = targeting_framework.config.target_mode or "Sticky"
+        
+        if targetMode == "Nuker" then
+            -- В Nuker автоселекция выполняется в Heartbeat, бинд не используется
+            return
+        else
+            -- Режим Sticky: переключение цели (старая логика)
+            if targeting_framework.targeting_state.current then
+                -- Освобождение текущей цели
+                targeting_framework.targeting_state.current = nil
+                targeting_framework.ClearTargetInfo()
+                
+                if flags["TargetNotify"] then
+                    utility.notify("Target released", 2)
+                end
+            else
+                -- Поиск новой цели
+                local closestPlayer, distance = targeting_framework.GetClosestToMouse()
+                if closestPlayer then
+                    targeting_framework.targeting_state.current = closestPlayer
+                    targeting_framework.SetTargetInfo(closestPlayer)
+                    
+                    if flags["TargetNotify"] then
+                        utility.notify("Locked onto: " .. closestPlayer.Name, 3)
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Добавление слушателя обновлений цели
+    targeting_framework.OnTargetUpdate = function(callback)
+        if typeof(callback) == "function" then
+            vars.tbl_insert(targeting_framework._target.listeners, callback)
+        end
+    end
+    
+    -- Добавление слушателя попаданий
+    targeting_framework.OnHit = function(callback)
+        if typeof(callback) == "function" then
+            vars.tbl_insert(targeting_framework._hit_listeners, callback)
+        end
+    end
+end
+
+-- Логика удержания цели после смерти и мониторинг здоровья (с поддержкой nuker режима)
+do
+    if not targeting_framework._dd.conn then
+        targeting_framework._dd.conn = vars.RunService.Heartbeat:Connect(function()
+            local dd = targeting_framework._dd
+            local currentTarget = dd.override_player or (targeting_framework.targeting_state and targeting_framework.targeting_state.current or nil)
+            
+            -- Для nuker режима: всегда выбираем ближайшую цель на каждом Heartbeat
+            if targeting_framework.config.targeting_enabled and targeting_framework.config.target_mode == "Nuker" then
+                local closestPlayer = targeting_framework.GetClosestToMouse()
+                if closestPlayer ~= currentTarget then
+                    targeting_framework.targeting_state.current = closestPlayer
+                    if closestPlayer then
+                        targeting_framework.SetTargetInfo(closestPlayer)
+                    else
+                        targeting_framework.ClearTargetInfo()
+                    end
+                    currentTarget = closestPlayer
+                end
+            end
+            
+            -- Проверка смены цели
+            if currentTarget ~= dd.last_target then
+                -- Уведомление о новой цели в Nuker режиме
+                if targeting_framework.config.target_mode == "Nuker" and flags["TargetNotify"] and currentTarget then
+                    utility.notify("Target: " .. currentTarget.Name, 2)
+                end
+                dd.last_target = currentTarget
+                dd.last_char = nil
+                dd.hum = nil
+                dd.last_health = nil
+                dd.last_max = nil
+                
+                if dd.hum_conn then
+                    pcall(function()
+                        dd.hum_conn:Disconnect()
+                    end)
+                    dd.hum_conn = nil
+                end
+            end
+            
+            if not currentTarget then
+                return
+            end
+            
+            local character = currentTarget.Character
+            
+            -- Проверка смены персонажа или потери humanoid
+            if character ~= dd.last_char or (dd.hum and not dd.hum.Parent) then
+                dd.last_char = character
+                dd.hum = character and character:FindFirstChildOfClass("Humanoid") or nil
+                dd.last_health = nil
+                dd.last_max = nil
+                
+                if dd.hum_conn then
+                    pcall(function()
+                        dd.hum_conn:Disconnect()
+                    end)
+                    dd.hum_conn = nil
+                end
+                
+                -- Подключение к изменениям здоровья для отслеживания урона
+                if dd.hum then
+                    vars.RunService.Heartbeat:Wait()
+                    
+                    dd.hum_conn = dd.hum.HealthChanged:Connect(function(newHealth)
+                        local maxHealth = dd.hum and dd.hum.MaxHealth or 0
+                        
+                        if dd.last_health == nil or dd.last_max == nil or maxHealth ~= dd.last_max then
+                            dd.last_health = newHealth
+                            dd.last_max = maxHealth
+                            return
+                        end
+                        
+                        if newHealth ~= dd.last_health then
+                            local damage = dd.last_health - newHealth
+                            if damage > 0 then
+                                local percentage = vars.math_floor((maxHealth > 0 and newHealth / maxHealth or 0) * 100 + 0.5)
+                                local hitInfo = {
+                                    player = currentTarget,
+                                    damage = damage,
+                                    health = newHealth,
+                                    max = maxHealth,
+                                    percentage = percentage
+                                }
+                                
+                                -- Уведомление слушателей попаданий
+                                for _, listener in ipairs(targeting_framework._hit_listeners) do
+                                    pcall(listener, hitInfo)
+                                end
+                            end
+                            dd.last_health = newHealth
+                            dd.last_max = maxHealth
+                        end
+                    end)
+                end
+            end
+            
+            local humanoid = dd.hum
+            if not humanoid or not humanoid.Parent then
+                return
+            end
+            
+            -- Обновление информации о цели (только если цель валидна)
+            if currentTarget and utility.ValidateClient(currentTarget) then
+                targeting_framework.SetTargetInfo(currentTarget)
+            end
+        end)
+    end
+end
+
+-- Framework: Radar система (перенесено в HUD секцию)
 do
     framework.add_player_to_radar = function(player)
         if player ~= vars.LocalPlayer and radar and radar.add_dot then
@@ -1085,6 +1405,807 @@ do
         end
     })
 end
+
+-- Rage Tab содержимое (упрощенная версия)
+-- Framework: Target Tracer (визуал для текущей цели)
+do
+    framework.tracer = framework.tracer or { 
+        line = nil, 
+        outline = nil, 
+        conn = nil, 
+        color = vars.Color3new(1, 1, 1), 
+        outline_color = vars.Color3new(0, 0, 0),
+        origin = "Bottom", 
+        target_part = "UpperTorso"
+    }
+
+    function framework.tracer_get_origin()
+        local cam = vars.Workspace.CurrentCamera
+        local size = cam and cam.ViewportSize or vars.Vector2new(1920, 1080)
+        local sel = (flags and flags["target_tracer_origin"]) or framework.tracer.origin or "Bottom"
+        if sel == "Mouse" then
+            -- Используем GetMouseLocation как в оригинальном коде
+            local ml = vars.UserInputService:GetMouseLocation()
+            return vars.Vector2new(ml.X, ml.Y)
+        elseif sel == "Top" then
+            -- Используем размер экрана напрямую как в оригинальном коде
+            return vars.Vector2new(size.X / 2, 0)
+        elseif sel == "Center" then
+            return vars.Vector2new(size.X / 2, size.Y / 2)
+        else -- Bottom
+            return vars.Vector2new(size.X / 2, size.Y)
+        end
+    end
+
+    function framework.tracer_get_target_position(info)
+        local partSel = framework.tracer.target_part or "UpperTorso"
+        local char = info and info.character
+        if char then
+            local part = char:FindFirstChild(partSel)
+            -- Фолбэк для R6
+            if not part and (partSel == "UpperTorso" or partSel == "LowerTorso") then
+                part = char:FindFirstChild("Torso")
+            end
+            if part then
+                local pos = part.CFrame.Position
+                -- Добавляем оффсеты для более точного попадания в визуальный центр
+                local offsets = {
+                    ["Head"] = vars.Vector3new(0, 0, 0),
+                    ["UpperTorso"] = vars.Vector3new(0, 0.5, 0),
+                    ["LowerTorso"] = vars.Vector3new(0, -0.5, 0),
+                    ["Torso"] = vars.Vector3new(0, 0, 0), -- R6
+                    ["HumanoidRootPart"] = vars.Vector3new(0, 0, 0),
+                    ["RightUpperArm"] = vars.Vector3new(0, 0.3, 0),
+                    ["LeftUpperArm"] = vars.Vector3new(0, 0.3, 0),
+                    ["RightLowerArm"] = vars.Vector3new(0, 0, 0),
+                    ["LeftLowerArm"] = vars.Vector3new(0, 0, 0),
+                    ["RightHand"] = vars.Vector3new(0, 0, 0),
+                    ["LeftHand"] = vars.Vector3new(0, 0, 0),
+                    ["RightUpperLeg"] = vars.Vector3new(0, 0.3, 0),
+                    ["LeftUpperLeg"] = vars.Vector3new(0, 0.3, 0),
+                    ["RightLowerLeg"] = vars.Vector3new(0, 0, 0),
+                    ["LeftLowerLeg"] = vars.Vector3new(0, 0, 0),
+                    ["RightFoot"] = vars.Vector3new(0, -0.2, 0),
+                    ["LeftFoot"] = vars.Vector3new(0, -0.2, 0)
+                }
+                local offset = offsets[partSel] or vars.Vector3new(0, 0, 0)
+                return pos + offset
+            end
+        end
+        return nil
+    end
+
+    function framework.tracer_update()
+        local t = framework.tracer
+        if not t.line then return end
+        local has, info = targeting_framework.GetTargetInfo()
+        if not has or not info then
+            t.line.Visible = false
+            if t.outline then t.outline.Visible = false end
+            return
+        end
+        local worldPos = framework.tracer_get_target_position(info)
+        if not worldPos then
+            t.line.Visible = false
+            if t.outline then t.outline.Visible = false end
+            return
+        end
+        local to, on = utility.ToScreen(worldPos)
+        
+        -- Скрываем трейсер если цель не видна на экране
+        if not on then
+            t.line.Visible = false
+            if t.outline then t.outline.Visible = false end
+            return
+        end
+        
+        local from = framework.tracer_get_origin()
+        
+        -- Обновляем outline (рисуется первым, чтобы быть под основной линией)
+        if t.outline then
+            t.outline.From = from
+            t.outline.To = to
+            t.outline.Visible = true
+        end
+        
+        -- Обновляем основную линию
+        t.line.From = from
+        t.line.To = to
+        t.line.Visible = true
+    end
+
+    function framework.tracer_start()
+        local t = framework.tracer
+        if not vars.Drawingnew then
+            utility.notify("Drawing API не доступен", 3)
+            return
+        end
+        
+        -- Создаем outline (рисуется первым)
+        if not t.outline then
+            t.outline = vars.Drawingnew("Line")
+            t.outline.Thickness = 6
+            t.outline.Color = t.outline_color or vars.Color3new(0, 0, 0)
+            t.outline.Visible = false
+        end
+        
+        -- Создаем основную линию
+        if not t.line then
+            t.line = vars.Drawingnew("Line")
+            t.line.Thickness = 2
+            t.line.Color = t.color or vars.Color3new(1, 1, 1)
+            t.line.Visible = false
+        end
+        
+        if not t.conn then
+            t.conn = vars.RunService.RenderStepped:Connect(framework.tracer_update)
+            vars.tbl_insert(library.connections, t.conn)
+        end
+    end
+
+    function framework.tracer_stop()
+        local t = framework.tracer
+        if t.conn then pcall(function() t.conn:Disconnect() end) t.conn = nil end
+        if t.line then pcall(function() t.line.Visible = false t.line:Remove() end) t.line = nil end
+        if t.outline then pcall(function() t.outline.Visible = false t.outline:Remove() end) t.outline = nil end
+    end
+
+    -- Target Highlight функции
+    framework.highlight = {
+        highlight = nil,
+        color = vars.Color3new(1, 0, 0),
+        outline_color = vars.Color3new(0, 0, 0),
+        fill_transparency = 0.5,
+        outline_transparency = 0,
+        conn = nil
+    }
+
+    function framework.highlight_update()
+        local h = framework.highlight
+        local target = targeting_framework.targeting_state.current
+        
+        if not target or not target.Character then
+            if h.highlight then 
+                h.highlight.Enabled = false
+                h.highlight.Adornee = nil
+            end
+            return
+        end
+        
+        if h.highlight then
+            h.highlight.Enabled = true
+            h.highlight.Adornee = target.Character
+        end
+    end
+
+    function framework.highlight_start()
+        local h = framework.highlight
+        
+        if not vars.Instancenew then
+            utility.notify("Instance API не доступен", 3)
+            return
+        end
+        
+        -- Создаем Highlight объект
+        if not h.highlight then
+            h.highlight = vars.Instancenew("Highlight")
+            h.highlight.FillColor = h.color or vars.Color3new(1, 0, 0)
+            h.highlight.OutlineColor = h.outline_color or vars.Color3new(0, 0, 0)
+            h.highlight.FillTransparency = h.fill_transparency or 0.5
+            h.highlight.OutlineTransparency = h.outline_transparency or 0
+            h.highlight.Enabled = false
+            h.highlight.Parent = vars.CoreGui
+        end
+        
+        if not h.conn then
+            h.conn = vars.RunService.RenderStepped:Connect(framework.highlight_update)
+            vars.tbl_insert(library.connections, h.conn)
+        end
+    end
+
+    function framework.highlight_stop()
+        local h = framework.highlight
+        if h.conn then pcall(function() h.conn:Disconnect() end) h.conn = nil end
+        if h.highlight then pcall(function() h.highlight.Enabled = false h.highlight:Destroy() end) h.highlight = nil end
+    end
+
+    -- China Hat функционал
+    framework.china_hat = {
+        lines = {},
+        conn = nil,
+        height = 2,
+        radius = 3,
+        sides = 12,
+        hat_transparency = 0,
+        line_transparency = 0,
+        style = "Custom",
+        c1 = vars.Color3fromRGB(128, 18, 255),
+        c2 = vars.Color3fromRGB(255, 0, 128),
+        c3 = vars.Color3fromRGB(0, 200, 255)
+    }
+
+    -- China Hat utility функции
+    function framework.lerp(start_val, end_val, alpha)
+        return start_val + (end_val - start_val) * alpha
+    end
+    
+    function framework.lerp_color(start_color, end_color, alpha)
+        return vars.Color3new(
+            framework.lerp(start_color.R, end_color.R, alpha),
+            framework.lerp(start_color.G, end_color.G, alpha),
+            framework.lerp(start_color.B, end_color.B, alpha)
+        )
+    end
+    
+    function framework.get_rainbow_color(progress, time_offset)
+        local hue = (time_offset * 0.2 + progress) % 1
+        return vars.Color3fromHSV(hue, 0.6, 1)
+    end
+    
+    function framework.get_astolfo_color(progress, time_offset)
+        local colors = {
+            vars.Color3fromRGB(255, 105, 180),
+            vars.Color3fromRGB(255, 75, 150),
+            vars.Color3fromRGB(135, 206, 250)
+        }
+        return framework.cycle_colors(colors, progress, time_offset, 0.25)
+    end
+    
+    function framework.cycle_colors(color_array, progress, time_offset, speed_override)
+        local color_count = #color_array
+        if color_count == 0 then
+            return vars.Color3new(1, 1, 1)
+        end
+        if color_count == 1 then
+            return color_array[1]
+        end
+        
+        local normalized_time = (progress + time_offset * (speed_override or 0.2)) % 1
+        local scaled_time = normalized_time * color_count
+        local current_index = vars.math_floor(scaled_time) + 1
+        local lerp_factor = scaled_time - vars.math_floor(scaled_time)
+        
+        local start_color = color_array[current_index]
+        local end_color = color_array[current_index % color_count + 1]
+        
+        return framework.lerp_color(start_color, end_color, lerp_factor)
+    end
+    
+    function framework.get_custom_gradient_color(progress, time_offset, config)
+        local normalized_time = (progress + time_offset * 0.2) % 1
+        if normalized_time < 0.33 then
+            return framework.lerp_color(config.c1, config.c2, normalized_time / 0.33)
+        elseif normalized_time < 0.66 then
+            return framework.lerp_color(config.c2, config.c3, (normalized_time - 0.33) / 0.33)
+        else
+            return framework.lerp_color(config.c3, config.c1, (normalized_time - 0.66) / 0.34)
+        end
+    end
+
+    function framework.create_china_hat(target_player)
+        if not target_player or not target_player.Character then
+            return nil
+        end
+        
+        local character = target_player.Character
+        local head = character:FindFirstChild("Head")
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        
+        if not head or not humanoid or humanoid.Health <= 0 then
+            return nil
+        end
+        
+        return {
+            player = target_player,
+            character = character,
+            head = head,
+            humanoid = humanoid
+        }
+    end
+
+    function framework.update_hat_rendering(hat_config, target_data)
+        if not hat_config.enabled or not target_data then
+            framework.hide_all_drawings(hat_config)
+            return
+        end
+        
+        local head_position = target_data.head.Position
+        local camera = vars.Workspace.CurrentCamera
+        local camera_position = camera.CFrame.Position
+        local camera_focus = camera.Focus.Position
+        local distance = (camera_position - camera_focus).Magnitude
+        
+        if distance < 1 then
+            framework.hide_all_drawings(hat_config)
+            return
+        end
+        
+        local screen_pos, on_screen = camera:WorldToViewportPoint(head_position)
+        if not on_screen or screen_pos.Z <= 0 then
+            framework.hide_all_drawings(hat_config)
+            return
+        end
+        
+        local current_time = vars.tick()
+        local full_circle = vars.math_pi * 2
+        local base_position = head_position + vars.Vector3new(0, 0.75, 0)
+        local top_position = base_position + vars.Vector3new(0, hat_config.height, 0)
+        
+        for side_index = 1, hat_config.sides do
+            local drawing_pair = hat_config.drawings[side_index]
+            if drawing_pair then
+                local line_drawing, triangle_drawing = drawing_pair[1], drawing_pair[2]
+                if line_drawing and triangle_drawing then
+                    local current_angle = (side_index - 1) / hat_config.sides * full_circle
+                    local next_angle = side_index / hat_config.sides * full_circle
+                    
+                    local current_point = base_position + vars.Vector3new(
+                        vars.math_cos(current_angle), 0, vars.math_sin(current_angle)
+                    ) * hat_config.radius
+                    
+                    local next_point = base_position + vars.Vector3new(
+                        vars.math_cos(next_angle), 0, vars.math_sin(next_angle)
+                    ) * hat_config.radius
+                    
+                    local current_screen = camera:WorldToViewportPoint(current_point)
+                    local next_screen = camera:WorldToViewportPoint(next_point)
+                    local top_screen = camera:WorldToViewportPoint(top_position)
+                    
+                    local color_progress = (side_index - 1) / hat_config.sides
+                    local final_color = framework.get_style_color(hat_config.style, color_progress, current_time, hat_config)
+                    
+                    -- Обновление линии
+                    line_drawing.From = vars.Vector2new(current_screen.X, current_screen.Y)
+                    line_drawing.To = vars.Vector2new(next_screen.X, next_screen.Y)
+                    line_drawing.Color = final_color
+                    line_drawing.Transparency = hat_config.line_trs
+                    line_drawing.Visible = true
+                    
+                    -- Обновление треугольника
+                    triangle_drawing.PointA = vars.Vector2new(top_screen.X, top_screen.Y)
+                    triangle_drawing.PointB = line_drawing.From
+                    triangle_drawing.PointC = line_drawing.To
+                    triangle_drawing.Color = final_color
+                    triangle_drawing.Transparency = hat_config.hat_trs
+                    triangle_drawing.Visible = true
+                end
+            end
+        end
+        
+        -- Скрытие неиспользуемых элементов
+        for side_index = hat_config.sides + 1, 30 do
+            local drawing_pair = hat_config.drawings[side_index]
+            if drawing_pair then
+                if drawing_pair[1] then drawing_pair[1].Visible = false end
+                if drawing_pair[2] then drawing_pair[2].Visible = false end
+            end
+        end
+    end
+
+    function framework.get_style_color(style, progress, time_offset, config)
+        if style == "Rainbow" then
+            return framework.get_rainbow_color(progress, time_offset)
+        elseif style == "Astolfo" then
+            return framework.get_astolfo_color(progress, time_offset)
+        elseif framework.custom_palettes[style] then
+            return framework.cycle_colors(framework.custom_palettes[style], progress, time_offset, 0.2)
+        else
+            return framework.get_custom_gradient_color(progress, time_offset, config)
+        end
+    end
+
+    function framework.hide_all_drawings(hat_config)
+        for index = 1, 30 do
+            local drawing_pair = hat_config.drawings[index]
+            if drawing_pair then
+                if drawing_pair[1] then drawing_pair[1].Visible = false end
+                if drawing_pair[2] then drawing_pair[2].Visible = false end
+            end
+        end
+    end
+
+    function framework.initialize_drawings(hat_config)
+        if not hat_config.drawings then
+            hat_config.drawings = {}
+        end
+        
+        if #hat_config.drawings >= 30 then
+            return
+        end
+        
+        for index = 1, 30 do
+            local line_drawing = vars.Drawingnew("Line")
+            local triangle_drawing = vars.Drawingnew("Triangle")
+            
+            line_drawing.ZIndex = 2
+            line_drawing.Thickness = 1
+            line_drawing.Visible = false
+            
+            triangle_drawing.ZIndex = 1
+            triangle_drawing.Filled = true
+            triangle_drawing.Visible = false
+            
+            vars.tbl_insert(hat_config.drawings, {line_drawing, triangle_drawing})
+        end
+    end
+
+    function framework.cleanup_connection(hat_config)
+        if hat_config.conn then
+            pcall(function()
+                hat_config.conn:Disconnect()
+            end)
+            hat_config.conn = nil
+        end
+        framework.hide_all_drawings(hat_config)
+    end
+
+    -- Кастомные палитры
+    framework.custom_palettes = {
+        CustomPalette1 = {vars.Color3fromRGB(255, 94, 58), vars.Color3fromRGB(255, 154, 0), vars.Color3fromRGB(255, 212, 0)},
+        CustomPalette2 = {
+            vars.Color3fromRGB(0, 212, 255),
+            vars.Color3fromRGB(0, 128, 255),
+            vars.Color3fromRGB(0, 64, 128),
+            vars.Color3fromRGB(0, 40, 80)
+        },
+        CustomPalette3 = {vars.Color3fromRGB(255, 0, 0), vars.Color3fromRGB(255, 102, 0)},
+        CustomPalette4 = {
+            vars.Color3fromRGB(200, 255, 255),
+            vars.Color3fromRGB(150, 220, 255),
+            vars.Color3fromRGB(100, 200, 255),
+            vars.Color3fromRGB(80, 160, 220),
+            vars.Color3fromRGB(60, 120, 190)
+        },
+        CustomPalette5 = {vars.Color3fromRGB(88, 0, 255), vars.Color3fromRGB(255, 0, 191), vars.Color3fromRGB(0, 160, 255)},
+        CustomPalette6 = {vars.Color3fromRGB(0, 255, 128), vars.Color3fromRGB(255, 0, 255), vars.Color3fromRGB(0, 255, 255)},
+        CustomPalette7 = {
+            vars.Color3fromRGB(255, 255, 255),
+            vars.Color3fromRGB(200, 200, 200),
+            vars.Color3fromRGB(150, 150, 150),
+            vars.Color3fromRGB(100, 100, 100)
+        },
+        CustomPalette8 = {
+            vars.Color3fromRGB(255, 20, 147),
+            vars.Color3fromRGB(186, 85, 211),
+            vars.Color3fromRGB(72, 61, 139)
+        },
+        CustomPalette9 = {
+            vars.Color3fromRGB(0, 255, 255),
+            vars.Color3fromRGB(173, 216, 230),
+            vars.Color3fromRGB(25, 25, 112)
+        },
+        CustomPalette10 = {vars.Color3fromRGB(255, 215, 0), vars.Color3fromRGB(255, 165, 0), vars.Color3fromRGB(255, 69, 0)},
+        CustomPalette11 = {vars.Color3fromRGB(124, 252, 0), vars.Color3fromRGB(50, 205, 50), vars.Color3fromRGB(0, 128, 0)},
+        CustomPalette12 = {
+            vars.Color3fromRGB(0, 0, 0),
+            vars.Color3fromRGB(45, 0, 80),
+            vars.Color3fromRGB(120, 0, 200),
+            vars.Color3fromRGB(255, 0, 255)
+        },
+        CustomPalette13 = {
+            vars.Color3fromRGB(0, 0, 128),
+            vars.Color3fromRGB(0, 0, 255),
+            vars.Color3fromRGB(0, 191, 255),
+            vars.Color3fromRGB(135, 206, 250)
+        },
+        CustomPalette14 = {
+            vars.Color3fromRGB(255, 105, 180),
+            vars.Color3fromRGB(255, 182, 193),
+            vars.Color3fromRGB(135, 206, 250)
+        },
+        CustomPalette15 = {
+            vars.Color3fromRGB(240, 255, 255),
+            vars.Color3fromRGB(176, 224, 230),
+            vars.Color3fromRGB(135, 206, 235),
+            vars.Color3fromRGB(70, 130, 180)
+        },
+        CustomPalette16 = {
+            vars.Color3fromRGB(255, 255, 240),
+            vars.Color3fromRGB(255, 250, 205),
+            vars.Color3fromRGB(250, 250, 210),
+            vars.Color3fromRGB(238, 232, 170)
+        }
+    }
+
+    -- Инициализация рисунков
+    framework.initialize_drawings(framework.china_hat)
+
+    -- Основная функция обновления China Hat
+    function framework.update_china_hat()
+        local target_player = targeting_framework.targeting_state.current
+        local target_data = framework.create_china_hat(target_player)
+        framework.update_hat_rendering(framework.china_hat, target_data)
+    end
+
+    -- Функции управления China Hat
+    function framework.china_hat_start()
+        framework.china_hat.enabled = true
+        if not framework.china_hat.conn then
+            framework.china_hat.conn = vars.RunService.RenderStepped:Connect(framework.update_china_hat)
+            vars.tbl_insert(library.connections, framework.china_hat.conn)
+        end
+    end
+
+    function framework.china_hat_stop()
+        framework.china_hat.enabled = false
+        framework.cleanup_connection(framework.china_hat)
+    end
+end
+do
+    local RageTab = _G.RageTab
+    local rage_column1 = RageTab:column()
+    local rage_column2 = RageTab:column()
+    local rage_column3 = RageTab:column()
+    local rage_column4 = RageTab:column()
+    
+    -- Target секция
+    local target_section = rage_column1:section({name = "Target"})
+    
+    -- Основной тогл с привязанным кейбиндом
+    local targeting_toggle = target_section:toggle({
+        name = "Targeting Enabled",
+        flag = "TargetingEnabled",
+        callback = function(enabled)
+            targeting_framework.config.targeting_enabled = enabled
+            if not enabled then
+                -- Очищаем цель при выключении
+                targeting_framework.targeting_state.current = nil
+                targeting_framework.ClearTargetInfo()
+            end
+        end
+    })
+    
+    -- Привязываем кейбинд прямо к тоглу для выбора цели
+    targeting_toggle:keybind({
+        key = Enum.KeyCode.Q,
+        flag = "TargetBind",
+        callback = function()
+            if flags["TargetingEnabled"] then
+                targeting_framework.selectTarget()
+            end
+        end
+    })
+    
+    -- Тип выбора цели
+    target_section:dropdown({
+        name = "Target Mode",
+        flag = "TargetMode",
+        items = {"Sticky", "Nuker"},
+        default = "Sticky",
+        dependency = "TargetingEnabled",
+        callback = function(selected)
+            targeting_framework.config.target_mode = selected
+        end
+    })
+    
+    
+    -- Слушатель попаданий для отображения урона
+    targeting_framework.OnHit(function(hitInfo)
+        if flags["TargetDamageNotify"] then
+            local msg = vars.str_format("Hit %s for %.1f damage [%d%% HP]", 
+                hitInfo.player.Name, hitInfo.damage, hitInfo.percentage)
+            utility.notify(msg, 2)
+        end
+    end)
+    
+    
+    -- Visual секция (колонка 2)
+    local visual_section = rage_column2:section({name = "Visual"})
+    local tracer_toggle = visual_section:toggle({
+        name = "TargetTracer",
+        flag = "target_tracer",
+        callback = function(enabled)
+            if enabled then
+                framework.tracer_start()
+            else
+                framework.tracer_stop()
+            end
+        end
+    })
+    tracer_toggle:colorpicker({
+        name = "Color",
+        color = vars.Color3new(1, 1, 1),
+        flag = "target_tracer_color",
+        callback = function(color)
+            framework.tracer.color = color
+            if framework.tracer.line then framework.tracer.line.Color = color end
+        end
+    })
+    tracer_toggle:colorpicker({
+        name = "Outline",
+        color = vars.Color3new(0, 0, 0),
+        flag = "target_tracer_outline_color",
+        callback = function(color)
+            framework.tracer.outline_color = color
+            if framework.tracer.outline then framework.tracer.outline.Color = color end
+        end
+    })
+    -- Создаем dependency box для dropdown элементов
+    local tracer_depbox = visual_section:dependency_box()
+    tracer_depbox:setup_dependencies({
+        { tracer_toggle, true }  -- показывать только если TargetTracer включен
+    })
+    
+    -- Добавляем dropdown элементы в dependency box
+    tracer_depbox:dropdown({
+        name = "Origin",
+        flag = "target_tracer_origin",
+        items = {"Mouse", "Bottom", "Center", "Top"},
+        default = "Bottom",
+        callback = function(selected)
+            framework.tracer.origin = selected
+        end
+    })
+    tracer_depbox:dropdown({
+        name = "Target Part",
+        flag = "target_tracer_part",
+        items = {"Head","HumanoidRootPart","UpperTorso","LowerTorso","RightUpperArm","RightLowerArm","RightHand","LeftUpperArm","LeftLowerArm","LeftHand","RightUpperLeg","RightLowerLeg","RightFoot","LeftUpperLeg","LeftLowerLeg","LeftFoot"},
+        default = "UpperTorso",
+        callback = function(selected)
+            framework.tracer.target_part = selected
+        end
+    })
+    
+    -- Target Highlight тогл
+    local highlight_toggle = visual_section:toggle({
+        name = "Target Highlight",
+        flag = "target_highlight",
+        callback = function(enabled)
+            if enabled then
+                framework.highlight_start()
+            else
+                framework.highlight_stop()
+            end
+        end
+    })
+    highlight_toggle:colorpicker({
+        name = "Color",
+        color = vars.Color3new(1, 1, 1),
+        flag = "target_highlight_color",
+        callback = function(color)
+            framework.highlight.color = color
+            if framework.highlight.highlight then 
+                framework.highlight.highlight.FillColor = color 
+            end
+        end
+    })
+    highlight_toggle:colorpicker({
+        name = "Outline",
+        color = vars.Color3new(0, 0, 0),
+        flag = "target_highlight_outline_color",
+        callback = function(color)
+            framework.highlight.outline_color = color
+            if framework.highlight.highlight then 
+                framework.highlight.highlight.OutlineColor = color 
+            end
+        end
+    })
+    
+    -- Создаем dependency box для слайдеров прозрачности
+    local highlight_depbox = visual_section:dependency_box()
+    highlight_depbox:setup_dependencies({
+        { highlight_toggle, true }  -- показывать только если Target Highlight включен
+    })
+    
+    -- Слайдер прозрачности заливки
+    highlight_depbox:slider({
+        name = "Fill Transparency",
+        flag = "target_highlight_fill_transparency",
+        min = 0,
+        max = 1,
+        default = 0.5,
+        interval = 0.01,
+        callback = function(value)
+            framework.highlight.fill_transparency = value
+            if framework.highlight.highlight then 
+                framework.highlight.highlight.FillTransparency = value 
+            end
+        end
+    })
+    
+    -- Слайдер прозрачности контура
+    highlight_depbox:slider({
+        name = "Outline Transparency",
+        flag = "target_highlight_outline_transparency",
+        min = 0,
+        max = 1,
+        default = 0,
+        interval = 0.01,
+        callback = function(value)
+            framework.highlight.outline_transparency = value
+            if framework.highlight.highlight then 
+                framework.highlight.highlight.OutlineTransparency = value 
+            end
+        end
+    })
+    
+    -- Target China Hat тогл
+    local china_hat_toggle = visual_section:toggle({
+        name = "Target China Hat",
+        flag = "target_china_hat",
+        callback = function(enabled)
+            if enabled then
+                framework.china_hat_start()
+            else
+                framework.china_hat_stop()
+            end
+        end
+    })
+    
+    -- China Hat колорпикеры для Custom режима
+    china_hat_toggle:colorpicker({
+        name = "Color 1",
+        color = vars.Color3fromRGB(128, 18, 255),
+        flag = "china_hat_color1",
+        callback = function(color)
+            framework.china_hat.c1 = color
+        end
+    })
+    china_hat_toggle:colorpicker({
+        name = "Color 2", 
+        color = vars.Color3fromRGB(255, 0, 128),
+        flag = "china_hat_color2",
+        callback = function(color)
+            framework.china_hat.c2 = color
+        end
+    })
+    china_hat_toggle:colorpicker({
+        name = "Color 3",
+        color = vars.Color3fromRGB(0, 200, 255),
+        flag = "china_hat_color3",
+        callback = function(color)
+            framework.china_hat.c3 = color
+        end
+    })
+    
+    -- China Hat dependency box
+    local china_hat_depbox = visual_section:dependency_box()
+    china_hat_depbox:setup_dependencies({
+        { china_hat_toggle, true }
+    })
+    
+    -- China Hat стиль
+    china_hat_depbox:dropdown({
+        name = "Style",
+        flag = "china_hat_style",
+        items = {"Custom", "Rainbow", "Astolfo"},
+        default = "Custom",
+        callback = function(selected)
+            framework.china_hat.style = selected
+        end
+    })
+    
+    
+    -- Notifications секция (колонка 3)
+    local notifications_section = rage_column3:section({name = "Notifications"})
+    
+    -- Уведомления о выборе цели
+    notifications_section:toggle({
+        name = "Target Notify",
+        flag = "TargetNotify",
+        dependency = "TargetingEnabled",
+        callback = function(enabled)
+            -- Используется в selectTarget для уведомлений о выборе/освобождении цели
+        end
+    })
+    
+    -- Уведомления о нанесенном урону
+    notifications_section:toggle({
+        name = "Target Damage Notify",
+        flag = "TargetDamageNotify",
+        dependency = "TargetingEnabled",
+        callback = function(enabled)
+            -- Используется в OnHit для уведомлений о нанесенном урону
+        end
+    })
+    
+end
+
+-- Глобальная установка targeting framework
+pcall(function()
+    _G.targeting_state = targeting_framework.targeting_state
+    _G.TargetFramework = targeting_framework
+end)
 
 -- Инициализация темы
 library:update_theme("accent", vars.Color3new(139/255, 92/255, 246/255))
